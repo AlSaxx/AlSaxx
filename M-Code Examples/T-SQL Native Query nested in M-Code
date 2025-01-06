@@ -16,3 +16,37 @@ SELECT F.*
     #"Channel Field to Text" = Table.TransformColumnTypes(#"Conditional Column: Channel Split",{{"Channel", type text}})
 in
     #"Channel Field to Text"
+
+--------------------------------
+--------------------------------
+
+let
+    Source = Sql.Database("GM-L-TH-SQL-04", "GAME_ARC"),
+    #"Navigation (Native Query)" = Value.NativeQuery(Source,"
+SELECT	DISTINCT P.PRODUCT_KEY,
+		SOURCE_PRODUCT_CODE,
+		PRODUCT_DESCRIPTION,
+		DEPARTMENT_CODE,
+		DEPARTMENT_DESC,
+			CASE
+				WHEN CLASS_CODE = 'N' THEN 'D'
+				ELSE CLASS_CODE
+			END 'CLASS_CODE',
+			CASE
+				WHEN CLASS_DESC = 'Non-Classified' THEN 'Digital Download'
+				ELSE CLASS_DESC
+			END 'CLASS_DESC',
+		PROD_TYPE_CODE,
+		PROD_TYPE_DESC,
+		SUBCLASS_CODE,
+		SUBCLASS_DESC,
+		ATTRIB1_CODE,
+		ATTRIB1_DESC
+	FROM FCT_SALES_LINES F (NOLOCK)
+		INNER JOIN DIM_PRODUCT P (NOLOCK) ON P.PRODUCT_KEY = F.PRODUCT_KEY
+	WHERE
+		P.MANUFACTURE_CODE IN ('400060','500346','500629','500630')
+		AND P.DEPARTMENT_CODE <> 'X'", null, [EnableFolding = true]),
+    #"Renamed Columns" = Table.RenameColumns(#"Navigation (Native Query)",{{"PRODUCT_KEY", "Product Key"}, {"SOURCE_PRODUCT_CODE", "Source Product Code"}, {"DEPARTMENT_CODE", "Department Code"}, {"DEPARTMENT_DESC", "Department Description"}, {"CLASS_CODE", "Class Code"}, {"CLASS_DESC", "Class Description"}, {"PROD_TYPE_CODE", "Product Type Code"}, {"PROD_TYPE_DESC", "Product Type Description"}, {"SUBCLASS_CODE", "Subclass Code"}, {"SUBCLASS_DESC", "Subclass Description"}, {"ATTRIB1_CODE", "Attrib1 Code"}})
+in
+    #"Renamed Columns"
