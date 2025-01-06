@@ -1,0 +1,13 @@
+SEGMENTATION
+
+There are 2 types of segmentation we have within Insight.
+
+1)	Customers Segmentation (Value & Frequency)
+2)	Belong Proxy Segments (best fit based on Qualitative segments)
+a.	In general the Belong Proxy Segments are not used often and not really worth consideration.
+
+The Customer Segmentation is created looking at customer behaviour over the last 18 months. 
+The “Segmentation - Temp Table Update Script” should be run on a Monthly basis to update the insightTemp table.
+
+Within the “Segment Analysis” folder are an overview of the segments as well as some analysis tools to check on the segments.
+The useful one here are the SQL code & Excel names “Master v2”. Running this code and adding the data to the “Crib Sheet Data” tab will then populate the rest of the tabs. This sheet gives an overview of the distribution of the segments and their behaviours. It’s useful to look at this once a year to see if there are any significant changes in the business that may mean the segment parameters require adjustment. They have remained the same since 2016 when it was created, and I can’t see any need for them to change significantly in the future. 
