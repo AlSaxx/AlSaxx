@@ -1,0 +1,820 @@
+use insight
+go
+
+if object_id ('tempdb..#LEGO') is not null
+	drop table #LEGO
+
+select distinct s.sku
+into #LEGO
+from Sku s (nolock)
+	inner join UK_SQL_ARC_01.GAME_ARC.dbo.DIM_PRODUCT P ON P.SOURCE_PRODUCT_CODE = s.sku
+where
+	P.MANUFACTURE_CODE = 500687
+	AND P.PROD_TYPE_CODE = '425'
+	AND P.SUBCLASS_CODE = 'TBB'
+	AND P.MERCHANDISE_FLG = 'YES'
+go
+
+if object_id ('tempdb..#TARGETCUST') is not NULL																					-- TEMP TABLE FOR TARGET CUSTOMERS (#TARGETCUST - TITLE OR CAMPAIGN SKU's)
+	drop table #TARGETCUST
+
+select
+	distinct emc.mergedcustomerid,
+	min(tc.transactiondate) 'minTRGTrans'
+into 
+	#TARGETCUST
+from 
+	expanededmergedcustomerids emc (nolock)
+	inner join transactions tc (nolock) on emc.insightcustomerid = tc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join #LEGO s (nolock) on s.sku = ti.sku
+where
+	tc.transactiondate > DATEADD(MONTH,-18,GETDATE())																				-- 18 month active
+	and ti.transactionTypeId in (1,2,3)
+group by
+	emc.mergedcustomerid
+go
+
+if object_id ('tempdb..#BASE') is not NULL																							-- TEMP TABLE FOR BASE CUSTOMERS (Usually take the same time period as TARGETCUST but use the appropriate base)
+	drop table #BASE
+select
+	distinct emc.mergedcustomerid,
+	min(tc.transactiondate) 'minTRGTrans'
+into
+	#BASE
+from
+	expanededmergedcustomerids emc (nolock)
+	inner join transactions tc (nolock) on emc.insightcustomerid = tc.insightcustomerid
+	inner join TransactionItem ti (nolock) on tc.Id = ti.transactionId
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	tc.transactiondate > DATEADD(MONTH,-18,GETDATE())																				-- 18 Months GAME active customers
+	and ti.transactionTypeId in (1,2,3)
+	and s.marketplacevendorid = 0001
+	and tc.storenumber <> 9999
+	and emc.mergedcustomerid not in (select distinct mergedcustomerid from #TARGETCUST)					
+group by
+	emc.mergedcustomerid
+go
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+if object_id ('tempdb..#CUSTGROUP') is not NULL
+	drop table #CUSTGROUP
+select
+	x.mergedcustomerid,
+	x.minTRGTrans,
+	emc.insightcustomerid,
+	(0 + convert(char(8),cast(minTRGTrans as date),112) - convert(char(8),cc.dateOfBirth,112)) / 10000 [age],
+	cc.title,
+	cc.gender,
+	ic.email,
+	ic.rewardnumber
+into
+	#CUSTGROUP
+from
+	#BASE x																						-- CHANGE TO SELECTED TARGET GROUP FOR MAIN DATA PULLS (#TARGETCUST or #BASE)
+	inner join expanededmergedcustomerids emc (nolock) on x.mergedcustomerid = emc.mergedcustomerid
+	inner join insightcustomer ic (nolock) on emc.insightcustomerid = ic.id
+	inner join compositeCustomer cc (nolock) on emc.mergedcustomerid = cc.id
+where
+	emc.mergedcustomerid not in (select distinct mergedcustomerid from insighttemp..GK_CUSTOMER_BLACKLIST)
+	and emc.mergedcustomerid not in (select distinct mergedcustomerid from insighttemp..GK_B2B_suppression)
+go
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+if object_id ('tempdb..#PREDEPCUST') is not NULL
+	drop table #PREDEPCUST
+select
+	distinct insightcustomerid
+into
+	#PREDEPCUST
+from
+	transactions tc (nolock)
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	(transactiontypeid = 2 or (transactiontypeid = 1 and storenumber = 889 and transactiondate < releasedate))
+	and transactiondate >= cast (dateadd(month,-18,getdate()) as date)
+go
+
+if object_id ('tempdb..#STORECUST') is not NULL
+	drop table #STORECUST
+select
+	distinct x.mergedcustomerid
+into
+	#STORECUST
+from
+	#CUSTGROUP x
+	inner join transactions tc (nolock) on x.insightcustomerid = tc.insightcustomerid
+where
+	transactiondate >= cast (dateadd(month,-18,getdate()) as date)
+	and totalamount != 0
+	and tc.storenumber not in (887,889)	
+go
+
+if object_id ('tempdb..#ONLINECUST') is not NULL
+	drop table #ONLINECUST
+select
+	distinct x.mergedcustomerid
+into
+	#ONLINECUST
+from
+	#CUSTGROUP x
+	inner join transactions tc (nolock) on x.insightcustomerid = tc.insightcustomerid
+where
+	transactiondate >= cast (dateadd(month,-18,getdate()) as date)
+	and totalamount != 0
+	and tc.storenumber in (887,889)
+go
+
+if object_id ('tempdb..#MINTRANS') is not NULL
+	drop table #MINTRANS
+select
+	distinct x.mergedcustomerid,
+	min(transactiondate) 'mtdate'
+into
+	#MINTRANS
+from
+	#CUSTGROUP x
+	inner join transactions tc (nolock) on x.insightcustomerid = tc.insightcustomerid
+where
+	totalamount != 0
+	and storenumber <> 9999
+group by
+	x.mergedcustomerid
+go
+
+select
+	A.*,
+	B.Female
+from
+	(
+		select
+			distinct AgeIdx,
+			AgeGRP,
+			sum(Male) 'Male'
+		from
+			(
+				select
+					distinct 
+					case 
+						when ar.rangeid in (2,3,4,5,6) then 2
+						else ar.rangeid
+					end [AgeIdx],
+					case 
+						when ar.label in ('13','14','15','16','17') then '13-17'
+						else ar.label
+					end [AgeGrp],
+					X.Cust 'Male'
+				from
+					agerange ar (nolock)
+					left outer join 
+					(
+					select
+						rangeid
+						, label
+						, count (distinct mergedcustomerid) 'Cust'
+					from
+						#CUSTGROUP x
+						inner join agerange ar (nolock) on x.age = ar.age
+					where
+						gender = 'M'
+						or title in ('Mr','Master')
+					group by 
+						rangeid,
+						label
+					)X
+						on ar.rangeid = X.rangeid
+			)P
+		group by
+			AgeIdx,
+			AgeGRP
+	)A
+left outer join 
+	(	
+		select
+			distinct AgeIdx,
+			AgeGRP,
+			sum(Female) 'Female'
+		from
+			(
+				select
+					distinct 
+					case 
+						when ar.rangeid in (2,3,4,5,6) then 2
+						else ar.rangeid
+					end [AgeIdx],
+					case 
+						when ar.label in ('13','14','15','16','17') then '13-17'
+						else ar.label
+					end [AgeGrp],
+					X.Cust 'Female'
+				from
+					agerange ar (nolock)
+					left outer join 
+					(
+					select
+						rangeid
+						, label
+						, count (distinct mergedcustomerid) 'Cust'
+					from
+						#CUSTGROUP x
+						inner join agerange ar (nolock) on x.age = ar.age
+					where
+						gender = 'F'
+						or title in ('Ms','Miss','Mrs')
+					group by 
+						rangeid,
+						label
+					)X
+						on ar.rangeid = X.rangeid
+			)P
+		group by
+			AgeIdx,
+			AgeGRP
+
+	)B on A.AgeIdx = B.AgeIdx
+where
+	A.AgeIdx != 0
+order by 
+	A.[AgeIdx]
+go
+	
+select
+	'Active Customers' 'Measure',
+	count (distinct mergedcustomerid) 'Data'
+from
+	#CUSTGROUP
+union all
+select	
+	'Spend' 'Measure',
+	sum (totalamount) 'Data'
+from
+	#CUSTGROUP x
+	inner join transactions tc (nolock) on x.insightcustomerid = tc.insightcustomerid	 
+where
+	transactiondate >= cast (dateadd(month,-18,getdate()) as date)
+	and storenumber <> 9999
+	and totalamount != 0
+union all
+select	
+	'Transactions' 'Measure',
+	count (distinct tc.id) 'Data'
+from
+	#CUSTGROUP x
+	inner join transactions tc (nolock) on x.insightcustomerid = tc.insightcustomerid	 
+where
+	transactiondate >= cast (dateadd(month,-18,getdate()) as date)
+	and storenumber <> 9999
+	and totalamount != 0
+go
+	
+select
+	'New to GAME' 'Measure',
+	count (distinct x.mergedcustomerid) 'Data'
+from
+	#CUSTGROUP x
+	inner join #MINTRANS mt on x.mergedcustomerid = mt.mergedcustomerid
+where
+	minTRGTrans = mtdate	
+union all
+select
+	'Elite Subscriber' 'Measure',
+	count (distinct x.mergedcustomerid) 'Data'
+from
+	#CUSTGROUP x
+	inner join subscriber sc (nolock) on x.rewardnumber = sc.rewardnumber
+	inner join subscription sp (nolock) on sc.subscriberid = sp.subscriberid
+where
+	sp.[statusTypeId] = 3
+	and sp.subscriptionIsActive = 1
+	and (sp.subscriptionEndDate > getdate() or sp.subscriptionEndDate is NULL)
+	and sc.rewardnumber not in (select rewardnumber from insighttemp..jb_elite_bulk_suppression)
+go
+
+select
+	'Emailable' 'Measure',
+	count (distinct mergedcustomerid) 'Data'
+from
+	#CUSTGROUP x
+	inner join compositecustomer cc (nolock) on x.mergedcustomerid = cc.id
+where
+	email is not Null
+	and email <> ''
+	and rewardContactableByEmail = 1
+union all
+select
+	'App Customers' 'Measure',
+	count (distinct x.mergedcustomerid) 'Data'
+from
+	#CUSTGROUP x
+	inner join mobileDeviceAccess mda (nolock) on x.rewardnumber = mda.rewardnumber
+where
+	x.rewardnumber <> ''
+	and x.rewardnumber is not NULL
+	and dateAccessRevoked is NULL	
+go
+
+select
+	'Store Customers' 'Measure',
+	count (distinct x.mergedcustomerid) 'Data'
+from
+	#STORECUST x
+union all
+select
+	'Online Customers' 'Measure',
+	count (distinct x.mergedcustomerid) 'Data'
+from
+	#ONLINECUST x
+go
+	
+select
+	distinct [FORMAT],
+	count (distinct mergedcustomerid) 'Format Preference'
+from
+(
+select
+	distinct mergedcustomerid,
+	CASE
+		WHEN (platformid in (162,191) 
+				or (departmentid in (314,514) and subdepartmentid = 710)
+					or (departmentid in (449,649)))
+				THEN 'Xbox One'
+		WHEN (platformid = 288 
+				or (departmentid in (314,514) and subdepartmentid = 720)
+					or (departmentid in (499,699)))
+				THEN 'Xbox Series'
+		WHEN (platformid in (111,114,192,136) 
+				or departmentid in (318,327,337,339,341,342,344,345,347,348,360,365,368,373,374,393,396
+									,417,443,527,537,540,544,545,547,548,565,568,573,574,593,596,617,643)
+				or s.sku in ('252183','252184','252186','252187','252189','252190','252192','252193','292641','292643','292645','318317','403513','403526','381543','403510','403507'))
+				THEN 'PC'
+		WHEN (platformid in (130,163) 
+				or (departmentid in (314,514) and subdepartmentid = 165)
+					or (departmentid in (448,648)))
+				THEN 'Playstation 4'
+		WHEN (platformid = 287 
+				or (departmentid in (314,514) and subdepartmentid = 170)
+					or (departmentid in (498,698)))
+				THEN 'Playstation 5'
+		WHEN (platformid in (255,276)
+				or (departmentid in (314,514) and subdepartmentid = 670)
+					or (departmentid in (496,696)))
+				THEN 'Nintendo Switch'
+	END [FORMAT]
+from
+	#CUSTGROUP x
+	inner join transactions tc (nolock) on x.insightcustomerid = tc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	transactiontypeid = 1
+	and	transactiondate >= cast (dateadd(month,-18,getdate()) as date)
+)X
+where
+	[FORMAT] is not NULL
+group by
+	[FORMAT]
+go
+
+select
+	distinct [FORMAT],
+	count (distinct mergedcustomerid) 'Format Preference'
+from
+(
+select
+	distinct mergedcustomerid,
+	CASE
+		WHEN genreid in (72,128,127,3) and platformId in (274,282,292)
+				THEN 'Board Games'
+		WHEN productSubClassId = 102
+				THEN 'Clothing'
+		WHEN departmentId = 425 and subDepartmentId in (150,210,270)
+				THEN 'TCG'
+		WHEN  platformId in (307,303,296,295,294,293,286,285,284,283,267,231,221,216,215,210,203,196,194,193,190,150) and productSubClassId in (3,103,2) and marketplaceVendorId = 0001 
+				THEN 'Tech'
+		WHEN productSubClassId = 105
+				THEN 'Toys & Collectables'
+	END [FORMAT]
+from
+	#CUSTGROUP x
+	inner join transactions tc (nolock) on x.insightcustomerid = tc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	transactiontypeid = 1
+	and	transactiondate >= cast (dateadd(month,-18,getdate()) as date)
+)X
+where
+	[FORMAT] is not NULL
+group by
+	[FORMAT]
+go
+
+select
+	distinct Genre,
+	count (distinct mergedcustomerid) 'Genre Preference'
+from
+(
+select
+	distinct mergedcustomerid,
+	case when genreId in ('2','3','45','48','88','128','130') then 'Education and Problem Solving'
+	 when genreId in ('5') then 'Shooting'
+	 when genreId in ('8','55','70','73','76','90','91','116','114','117','121') then 'Action/Adventure'
+	 when genreId in ('7','10','15','43','46','49','52','62','63','64','65','67','83','175','176','177','179','180','188') then 'Dancing/Music'
+	 when genreid in ('25','26','71','93','114','150','153','159','184') then 'Horror/Drama/Crime'
+	 when genreid in ('4','14','16','39','66','81','88','128','130','197','181','173') then 'Strategy/Simulation'
+	 when genreId in ('27') then 'Racing'
+	 when genreId in ('31','40','85') then 'Sports/Fitness'
+	 when genreId in ('16','32','51') then 'Fighting/Beat`em up'
+	 when genreid in ('21','195') then 'Roleplay'
+	 when genreId in ('36','68','127','194') then 'Family Friendly'
+	 end as Genre
+from
+	#CUSTGROUP x
+	inner join transactions tc (nolock) on x.insightcustomerid = tc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	transactiontypeid in (1,6)
+	and	transactiondate >= cast (dateadd(month,-18,getdate()) as date)
+)X
+where
+	Genre is not NULL
+group by
+	Genre
+go
+
+select
+	'Deposit/Preorder' 'Measure',
+	count (distinct mergedcustomerid) 'Data'
+from
+	#CUSTGROUP x
+	inner join #PREDEPCUST pd on x.insightcustomerid = pd.insightcustomerid
+union all
+select
+	'Preowned' 'Measure',
+	count (distinct mergedcustomerid) 'Data'
+from
+	#CUSTGROUP x
+	inner join transactions tc (nolock) on x.insightcustomerid = tc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	transactiontypeid = 1
+	and productclassid = 2
+	and transactiondate >= cast (dateadd(month,-18,getdate()) as date)
+union all
+select
+	'Trade-in' 'Measure',
+	count (distinct mergedcustomerid) 'Data'
+from
+	#CUSTGROUP x
+	inner join 
+	(
+		select
+			distinct insightcustomerid as 'TICust'
+		from
+			transactions tc (nolock)
+			inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+		where
+			transactiontypeid = 6
+			and transactiondate >= cast (dateadd(month,-18,getdate()) as date)
+	) TRADE
+		on x.insightcustomerid = TRADE.TICust
+union all
+select
+	'Digital' 'Measure',
+	count (distinct mergedcustomerid) 'Data'
+from
+	#CUSTGROUP x
+	inner join 
+	(
+		select
+			distinct insightcustomerid 'DIGICust'
+		from
+			transactions tc (nolock)
+			inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+			inner join sku s (nolock) on ti.sku = s.sku
+		where
+			transactiontypeid = 1
+			and transactiondate >= cast (dateadd(month,-18,getdate()) as date)
+			and (productclassid = 5 
+					or productsubclassid in (8,9) 
+						or title like '%steam wallet%'
+							or departmentid in (456,470))
+			and s.sku not in (select sku from sku where departmentid = 470 and subdepartmentid = 50)
+	) DIGI
+		on x.insightcustomerid = DIGI.DIGICust
+go
+
+select
+	distinct VFSegmentID,
+	VFSegmentName,
+	count (distinct x.mergedcustomerid) 'cust'
+from
+	#CUSTGROUP x
+	inner join insighttemp..GK_CustomerSegment sg (nolock) on x.mergedcustomerid = sg.mergedcustomerid
+group by
+	VFSegmentID,
+	VFSegmentName
+order by
+	VFSegmentID
+go
+
+if object_id ('tempdb..#ACT18') is not NULL
+drop table #ACT18
+select
+	distinct b.mergedcustomerid,
+	b.minTRGTrans,
+	count (distinct tc.id) 'tCount',
+	sum (totalamount) 'vSum'
+into
+	#ACT18
+from
+	#CUSTGROUP b
+	inner join transactions tc (nolock) on b.insightcustomerid = tc.insightcustomerid
+where
+	tc.transactiondate >= dateadd(month,-18,b.minTRGTrans)
+	and tc.transactiondate < b.minTRGTrans
+	and storenumber != 9999
+group by
+	b.mergedcustomerid,
+	b.minTRGTrans
+go
+
+if object_id ('tempdb..#ACTMINTRAN') is not NULL
+	drop table #ACTMINTRAN
+select
+	distinct a.mergedcustomerid,
+	a.minTRGTrans,
+	a.tCount,
+	a.vSum,
+	min (transactiondate) 'mDate'
+into
+	#ACTMINTRAN
+from
+	#ACT18 a
+	inner join expanededmergedcustomerids emc (nolock) on a.mergedcustomerid = emc.mergedcustomerid
+	inner join transactions tc (nolock) on emc.insightcustomerid = tc.insightcustomerid
+group by
+	a.mergedcustomerid,
+	a.minTRGTrans,
+	a.tCount,
+	a.vSum
+go
+
+if object_id ('tempdb..#SANDBOX') is not NULL
+drop table #SANDBOX
+select
+	a.mergedcustomerid,
+	a.minTRGTrans,
+	case 
+		when tCount = 1 then '1'
+		when tCount = 2 then '2'
+		when tCount = 3 then '3'
+		when tCount = 4 then '4'
+		when tCount = 5 then '5'
+		when tCount = 6 then '6'
+		when tCount = 7 then '7'
+		when tCount = 8 then '8'
+		when tCount = 9 then '9'
+		when tCount = 10 then '10'
+		when tCount = 11 then '11'
+		when tCount = 12 then '12'
+		when tCount = 13 then '13'
+		when tCount = 14 then '14'
+		when tCount = 15 then '15'
+		when tCount = 16 then '16'
+		when tCount = 17 then '17'
+		when tCount >= 18 then '18+'
+	end [Freq],
+	case 
+		when vSum > 0 and vSum < 10 then '0-9'
+		when vSum >= 10 and vSum < 20 then '10-19'
+		when vSum >= 20 and vSum < 30 then '20-29'
+		when vSum >= 30 and vSum < 40 then '30-39'
+		when vSum >= 40 and vSum < 50 then '40-49'
+		when vSum >= 50 and vSum < 100 then '50-99'
+		when vSum >= 100 and vSum < 150 then '100-149'
+		when vSum >= 150 and vSum < 200 then '150-199'
+		when vSum >= 200 and vSum < 250 then '200-249'
+		when vSum >= 250 and vSum < 300 then '250-299'
+		when vSum >= 300 and vSum < 400 then '300-399'
+		when vSum >= 400 and vSum < 500 then '400-499'
+		when vSum >= 500 and vSum < 600 then '500-599'
+		when vSum >= 600 and vSum < 700 then '600-699'
+		when vSum >= 700 and vSum < 800 then '700-799'
+		when vSum >= 800 and vSum < 900 then '800-899'
+		when vSum >= 900 and vSum < 1000 then '900-999'
+		when vSum >= 1000 then '1000+'
+	end [Val]
+into
+	#SANDBOX
+from
+	#ACTMINTRAN a
+where
+	mDate < dateadd(month,-6,a.minTRGTrans)
+	and vSum > 0 
+	and vSum is not NULL
+go
+
+if object_id ('tempdb..#VFSEGMENT_TEST') is not NULL
+drop table #VFSEGMENT_TEST
+select
+	mergedcustomerid,
+	minTRGTrans,
+	case
+		when VFSegmentName = 'Casual Acquaintance' then 2
+		when VFSegmentName = 'Pocket Regulars' then 3
+		when VFSegmentName = 'Occasional Trippers' then 4
+		when VFSegmentName = 'Single Splurgers' then 5
+		when VFSegmentName = 'Average Shoppers' then 6
+		when VFSegmentName = 'Middleweight Spenders' then 7
+		when VFSegmentName = 'Big Time Spenders' then 8
+		when VFSegmentName = 'Top Elite' then 9
+	end [VFSegmentID],
+	VFSegmentName
+into
+	#VFSEGMENT_TEST
+from
+	(
+		select
+			distinct mergedcustomerid,
+			minTRGTrans,
+			case
+				when 
+					Freq = '1' 
+					and Val in ('0-9','10-19','20-29','30-39') 
+				then 'Casual Acquaintance'
+				when 
+					(
+					Freq not in ('1','2') 
+					and Val in ('0-9','10-19','20-29','30-39','40-49','50-99')
+					)
+					or 
+					(
+					Freq in ('6','7','8','9','10','11','12','13','14','15','16','17','18+') 
+					and Val in ('100-149','150-199')
+					) 
+				then 'Pocket Regulars'
+				when 
+					(
+					Freq = '1' 
+					and Val in ('40-49','50-99','100-149')
+					) 
+					or 
+					(
+					Freq = '2' 
+					and Val in ('0-9','10-19','20-29','30-39','40-49','50-99','100-149')
+					) 
+				then 'Occasional Trippers'
+				when 
+					Freq in ('1','2') 
+					and Val not in ('0-9','10-19','20-29','30-39','40-49','50-99','100-149') 
+				then 'Single Splurgers'
+				when 
+					Freq in ('3','4','5') 
+					and Val in ('100-149','150-199','200-249','250-299','300-399') 
+				then 'Average Shoppers'
+				when 
+					(
+					Freq in ('3','4','5') 
+					and Val = '400-499'
+					)
+					or 
+					(
+					Freq in ('6','7','8','9','10') 
+					and Val in ('200-249','250-299','300-399','400-499')
+					) 
+				then 'Middleweight Spenders'
+				when 
+					(
+					Freq in ('3','4','5','6','7','8','9','10') 
+					and Val in ('500-599','600-699','700-799','800-899','900-999','1000+')
+					)
+					or 
+					(
+					Freq in ('11','12','13','14','15','16','17') 
+					and Val in ('200-249','250-299','300-399','400-499','500-599','600-699','700-799','800-899','900-999','1000+')
+					)
+					or 
+					(
+					Freq = '18+' 
+					and Val in ('200-249','250-299','300-399','400-499','500-599','600-699','700-799','800-899','900-999')
+					) 
+				then 'Big Time Spenders'
+				when 
+					Freq = '18+' 
+					and Val = '1000+' 
+				then 'Top Elite'
+			end [VFSegmentName]
+		from
+			#SANDBOX
+	)SEGNAME
+go
+
+if object_id ('tempdb..#UPPER_THRESHOLD_SUPPRESSION') is not NULL
+drop table #UPPER_THRESHOLD_SUPPRESSION
+select 
+	a.mergedcustomerid,
+	a.minTRGTrans,
+	a.vSum,
+	v.VFSegmentID,
+	v.VFSegmentName 
+into
+	#UPPER_THRESHOLD_SUPPRESSION
+from 
+	#ACT18 a 
+	inner join #VFSEGMENT_TEST v on a.mergedcustomerid = v.mergedcustomerid
+where
+	a.vSum > 10000
+go
+
+if object_id ('tempdb..#VFSEGMENT_TEST2') is not NULL
+drop table #VFSEGMENT_TEST2
+select
+	A.*
+into
+	#VFSEGMENT_TEST2
+from
+	(
+		select
+			*
+		from
+			#VFSEGMENT_TEST
+		where
+			mergedcustomerid not in (select mergedcustomerid from #UPPER_THRESHOLD_SUPPRESSION)
+		union all
+		select
+			distinct mergedcustomerid,
+			minTRGTrans,
+			'1' [VFSegmentID],
+			'GAME Rookies' VFSegmentName
+		from
+			#ACTMINTRAN
+		where
+			mDate >= dateadd(month,-6,minTRGTrans)
+			and mDate < minTRGTrans
+	)A
+go
+
+if object_id ('tempdb..#LAPSEDREENGAGED') is not NULL
+	drop table #LAPSEDREENGAGED
+select
+	distinct x.mergedcustomerid 
+into
+	#LAPSEDREENGAGED
+from
+	#CUSTGROUP x
+where
+	x.mergedcustomerid not in (select distinct mergedcustomerid from #VFSEGMENT_TEST2)
+	and x.mergedcustomerid not in 
+	(
+		select
+			distinct x.mergedcustomerid
+		from
+			#CUSTGROUP x
+			inner join #MINTRANS mt on x.mergedcustomerid = mt.mergedcustomerid
+		where
+			minTRGTrans = mtdate	
+	)
+	and x.mergedcustomerid not in (select distinct mergedcustomerid from #UPPER_THRESHOLD_SUPPRESSION)
+	and x.mergedcustomerid not in (select distinct mergedcustomerid from #ACT18)
+go
+
+select
+	count (distinct mergedcustomerid) 'Lapsed Re-Engaged'
+from
+	#LAPSEDREENGAGED
+
+select
+	distinct VFSegmentID 'purchaseSegmentID',
+	VFSegmentName 'purchaseSegmentName',
+	count (distinct x.mergedcustomerid) 'cust'
+from
+	#CUSTGROUP x
+	inner join #VFSEGMENT_TEST2 sg (nolock) on x.mergedcustomerid = sg.mergedcustomerid
+group by
+	VFSegmentID,
+	VFSegmentName
+order by
+	VFSegmentID
+go
+
+select
+	distinct BelongSegmentID,
+	BelongSegmentName,
+	count (distinct x.mergedcustomerid) 'cust'
+from
+	#CUSTGROUP x
+	inner join insighttemp..GK_Belong_Segment sg (nolock) on x.mergedcustomerid = sg.mergedcustomerid
+group by
+	BelongSegmentID,
+	BelongSegmentName
+order by
+	BelongSegmentID
+go
