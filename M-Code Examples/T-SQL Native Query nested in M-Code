@@ -1,0 +1,18 @@
+let 
+    Source = Sql.Database("GM-L-TH-SQL-04", "GAME_ARC"),
+    #"Navigation (Native Query)" = Value.NativeQuery(Source,"
+SELECT F.*
+	FROM FCT_SALES_LINES F (NOLOCK)
+		INNER JOIN DIM_PRODUCT P (NOLOCK) ON P.PRODUCT_KEY = F.PRODUCT_KEY
+		INNER JOIN DIM_DATE D (NOLOCK) ON D.DATE_KEY = F.DATE_KEY
+	WHERE
+		D.DATE_KEY >= 6770 AND D.DATE_KEY < 7505
+		AND F.SALE_INVC_TYPE IN ('REG-INV','DISC-SALE')
+		AND P.MANUFACTURE_CODE IN ('400060','500346','500629','500630')
+		AND P.DEPARTMENT_CODE <> 'X'", null, [EnableFolding = true]),
+	#"Removed Columns" = Table.RemoveColumns(#"Navigation (Native Query)",{"STORE_KEY", "RETURN_REASON_KEY", "TILL_ID", "SALE_TRANSACTION_TYPE", "RETURN_REASON_CODE", "SALE_TOT_DISC_QTY", "SALE_TOT_DISC_VAL", "SALE_TOT_VAL_AT_PP", "ARC_DATE", "SALE_TOT_VAL_AT_SP", "SALE_ADJ_VAL", "SEQUENCE_NO", "PRODUCT_CODE"}),
+    #"Renamed Fields" = Table.RenameColumns(#"Removed Columns",{{"PRODUCT_KEY", "Product Key"}, {"INVOICE_NO", "Invoice No"}, {"SALE_INVC_TYPE", "Invoice Type"}, {"STORE_CODE", "Store Code"}, {"SALE_TOT_QTY", "Sales Quantity"}, {"SALE_NET_VAL", "Net Value"}, {"SALE_TOT_TAX_VAL", "Sales Tax Value"}}),
+    #"Conditional Column: Channel Split" = Table.AddColumn(#"Renamed Fields", "Channel", each if [Store Code] = "UK - 887" then "Online" else if [Store Code] = "UK - 889" then "Online" else "Store"),
+    #"Channel Field to Text" = Table.TransformColumnTypes(#"Conditional Column: Channel Split",{{"Channel", type text}})
+in
+    #"Channel Field to Text"
