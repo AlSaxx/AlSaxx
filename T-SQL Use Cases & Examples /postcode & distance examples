@@ -1,0 +1,128 @@
+use insight
+go
+
+
+/*
+select
+	*
+from
+	store st (nolock) 
+	inner join address ad (nolock) on st.addressid = ad.id 
+where 
+	storeid in (351, 2314)
+*/
+
+
+
+if object_id ('tempdb..#ACTIVE18') is not NULL
+drop table #ACTIVE18
+select
+	distinct emc.mergedcustomerid,
+	replace(ad.postcode,' ','') 'CustPostcode'
+into
+	#ACTIVE18
+from
+	expanededmergedCustomerids emc (nolock)
+	inner join insightCustomer ic (nolock) on emc.insightCustomerId = ic.id
+	inner join transactions tc (nolock)	on ic.id = tc.insightCustomerId
+	inner join compositeCustomer cc (nolock) on emc.mergedcustomerid = cc.id
+	left outer join address ad (nolock) on cc.homeaddressid = ad.id
+where
+	transactionDate > dateadd(month,-12,getdate())
+	and storeNumber <> 9999
+	--and email is not NULL 
+	--and email <> ''
+	--and (cc.dateOfBirth < cast(dateadd(year,-13,getdate()) as date)
+	--	or cc.dateOfBirth is NULL
+	--	or cc.dateOfBirth = '')
+	--and cc.rewardContactableByEmail = 1
+	and emc.mergedcustomerid not in (select mergedcustomerid from insighttemp..GK_customer_blacklist)
+	--and emc.mergedcustomerid not in (select mergedcustomerid from insighttemp..GK_gdpr_suppression)
+go
+
+
+
+
+if object_id ('tempdb..#SHOPPED_1') is not NULL
+drop table #SHOPPED_1
+select
+	distinct a.mergedcustomerid
+into
+	#SHOPPED_1
+from
+	expanededmergedCustomerids emc (nolock)
+	inner join insightCustomer ic (nolock) on emc.insightCustomerId = ic.id
+	inner join transactions tc (nolock)	on ic.id = tc.insightCustomerId	
+	inner join #ACTIVE18 a (nolock) on emc.mergedcustomerid = a.mergedcustomerid
+where
+	tc.storenumber in (351, 2314)
+	and tc.transactiondate > dateadd(month,-12,getdate())
+group by
+	a.mergedcustomerid
+having 
+	count (distinct tc.id) >= 1
+go
+
+
+
+if object_id ('tempdb..#CATCHMENT_1') is not NULL
+	drop table #CATCHMENT_1
+select
+	distinct mergedcustomerid
+into 
+	#CATCHMENT_1
+FROM 
+	(
+		select 
+			PCL.mergedcustomerid,
+			STL.Postcode,
+			PCL.CustPostcode,
+			PCL.Location.STDistance(STL.Location) / 1609.344 [DistanceMiles]
+		from 
+			(
+				select 
+					a.CustPostcode,
+					PCD.Location,
+					a.mergedcustomerid
+				from 
+					#ACTIVE18 a (nolock)
+					inner join PostcodeData PCD (nolock) ON PCD.Postcode = a.custpostcode
+				--where
+				--	a.mergedcustomerid not in (select mergedcustomerid from #SHOPPED_1)
+			) PCL
+			cross join 
+			( 
+				select 
+					postcode,
+					Location
+				from 
+					PostcodeData (nolock)
+				where
+					postcode in('M178DF','M32QG')
+			) STL
+	) AL 
+WHERE 
+	DistanceMiles < 15
+
+go
+
+
+if object_id ('tempdb..#SHOPCATCH_1') is not NULL
+	drop table #SHOPCATCH_1
+select
+	distinct mergedcustomerid
+into
+	#SHOPCATCH_1
+from
+	(
+		select * from #SHOPPED_1
+		union all
+		select * from #CATCHMENT_1
+	)SUMM
+go
+
+
+
+select count(distinct mergedCustomerId) AS '15M_Customers'
+from #SHOPCATCH_1
+go
