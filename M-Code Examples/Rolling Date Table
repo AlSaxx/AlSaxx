@@ -1,5 +1,5 @@
 let
-    StartDate = Date.AddDays(Date.From(DateTime.LocalNow()), -1), //Adjust Start date from sys time local today
+    StartDate = Date.AddDays(Date.From(DateTime.LocalNow()), -1), //Adjust Start date from sys time local today -1 day
     EndDate = Date.AddMonths(StartDate, -24), //Adjust month difference from Start date
     DateList = List.Dates(EndDate, Duration.Days(StartDate - EndDate) + 1, #duration(1, 0, 0, 0)),
     #"Convert to Table" = Table.FromList(DateList, Splitter.SplitByNothing(), {"Date"}, null, ExtraValues.Error),
