@@ -1,0 +1,17 @@
+let
+    StartDate = Date.AddDays(Date.From(DateTime.LocalNow()), -1), //Adjust Start date from sys time local today
+    EndDate = Date.AddMonths(StartDate, -24), //Adjust month difference from Start date
+    DateList = List.Dates(EndDate, Duration.Days(StartDate - EndDate) + 1, #duration(1, 0, 0, 0)),
+    #"Convert to Table" = Table.FromList(DateList, Splitter.SplitByNothing(), {"Date"}, null, ExtraValues.Error),
+    #"Changed Type" = Table.TransformColumnTypes(#"Convert to Table",{{"Date", type date}}),
+    #"Inserted Year" = Table.AddColumn(#"Changed Type", "Year", each Date.Year([Date]), Int64.Type),
+    #"Inserted QuarterNo" = Table.AddColumn(#"Inserted Year", "QuarterNo", each Date.QuarterOfYear([Date]), Int64.Type),
+    #"Inserted Quarter" = Table.AddColumn(#"Inserted QuarterNo", "Quarter", each "Q"&Number.ToText([QuarterNo])),
+    #"Inserted MonthNo" = Table.AddColumn(#"Inserted Quarter", "MonthNo", each Date.Month([Date]), Int64.Type),
+    #"Inserted Month" = Table.AddColumn(#"Inserted MonthNo", "Month", each Text.Start(Date.MonthName([Date]),3), type text),
+    #"Inserted Week of Year" = Table.AddColumn(#"Inserted Month", "Week of Year", each Date.WeekOfYear([Date]), Int64.Type),
+    #"Inserted Start of Week" = Table.AddColumn(#"Inserted Week of Year", "Start of Week", each Date.StartOfWeek([Date]), type date),
+    #"Inserted DayNo" = Table.AddColumn(#"Inserted Start of Week", "DayNo", each Date.DayOfWeek([Date], 1)+1, Int64.Type),
+    #"Inserted Day Name" = Table.AddColumn(#"Inserted DayNo", "Day", each Text.Start(Date.DayOfWeekName([Date]),3), type text)
+in
+    #"Inserted Day Name"
