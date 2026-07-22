@@ -1,0 +1,886 @@
+// Publisher Weekly Sales Dashboard — Power Pivot / Power Query Excel BI tool
+// Full DAX measure catalogue, exported via DAX Studio (EVALUATE against $SYSTEM.MDSCHEMA_MEASURES)
+// Built as a partner-facing dashboard, and as a low-friction stepping stone toward Power BI adoption.
+// Star schema: FCT_SALES_LINES fact table against DIM_DATE / DIM_PRODUCT, with category-specific
+// bridge tables (SoftwareSKU, HardwareSKU, AccessorySKU, DigitalSKU) and a secondary product
+// taxonomy (DIM_ANDPRODUCT) resolved via USERELATIONSHIP for market-basket analysis.
+
+//==============================================================================
+// BASE MEASURES
+//==============================================================================
+
+// ---- Sum of Sales Quantity ----
+Sum of Sales Quantity :=
+SUM('FCT_SALES_LINES'[Sales Quantity])
+
+// ---- Sum of Gross Value ----
+Sum of Gross Value :=
+SUM('FCT_SALES_LINES'[Gross Value])
+
+// ---- Sum of Net Value ----
+Sum of Net Value :=
+SUM('FCT_SALES_LINES'[Net Value])
+
+// ---- Unit Sales ----
+Unit Sales :=
+SUM(FCT_SALES_LINES[Sales Quantity])
+
+// ---- Value Sales ----
+Value Sales :=
+SUM(FCT_SALES_LINES[Gross Value])
+
+// ---- Average Basket Units ----
+Average Basket Units :=
+AVERAGEX(
+DISTINCT(FCT_SALES_LINES[Invoice No]),
+[Unit Sales]
+)
+
+// ---- Average Basket Value ----
+Average Basket Value :=
+AVERAGEX(
+DISTINCT(FCT_SALES_LINES[Invoice No]),
+[Value Sales]
+)
+
+
+//==============================================================================
+// TIME INTELLIGENCE (YOY / WOW / YTD / MTD)
+//==============================================================================
+
+// ---- Unit Sales LY ----
+Unit Sales LY :=
+CALCULATE (
+   [Unit Sales],
+   DATEADD (
+       DIM_DATE[Date],
+       -1,
+       YEAR
+   )
+)
+
+// ---- Value LY ----
+Value LY :=
+CALCULATE (
+   [Value Sales],
+   DATEADD (
+       DIM_DATE[Date],
+       -1,
+       YEAR
+   )
+)
+
+// ---- Unit Sales LW ----
+Unit Sales LW :=
+CALCULATE (
+   [Unit Sales],
+   DATEADD (
+       DIM_DATE[Date],
+       -7,
+       DAY
+   )
+)
+
+// ---- Value Sales LW ----
+Value Sales LW :=
+CALCULATE (
+   [Value Sales],
+   DATEADD (
+       DIM_DATE[Date],
+       -7,
+       DAY
+   )
+)
+
+// ---- YoY Unit Growth % ----
+YoY Unit Growth % :=
+VAR LYUnit =
+   CALCULATE (
+       [Unit Sales],
+       DATEADD (
+           DIM_DATE[Date],
+           -1,
+           YEAR
+       )
+   )
+RETURN
+   DIVIDE (
+       ( [Unit Sales] - LYUnit ),
+       LYUnit
+   )
+
+// ---- YoY Value Growth % ----
+YoY Value Growth % :=
+VAR LYGross =
+   CALCULATE (
+       [Value Sales],
+       DATEADD (
+           DIM_DATE[Date],
+           -1,
+           YEAR
+       )
+   )
+RETURN
+   DIVIDE (
+       ( [Value Sales] - LYGross ),
+       LYGross
+   )
+
+// ---- WoW Unit Growth % ----
+WoW Unit Growth % :=
+VAR LWUnit =
+   CALCULATE (
+       [Unit Sales],
+       DATEADD (
+           DIM_DATE[Date],
+           -7,
+           DAY
+       )
+   )
+RETURN
+   DIVIDE (
+       ( [Unit Sales] - LWUnit ),
+       LWUnit
+   )
+
+// ---- Unit Sales YTD ----
+Unit Sales YTD :=
+CALCULATE(
+[Unit Sales],
+DATESYTD(DIM_DATE[Date])
+)
+
+// ---- Value Sales YTD ----
+Value Sales YTD :=
+CALCULATE(
+[Value Sales],
+DATESYTD(DIM_DATE[Date])
+)
+
+// ---- Unit Sales LW LY ----
+Unit Sales LW LY :=
+CALCULATE(
+[Unit Sales],
+SAMEPERIODLASTYEAR(DIM_DATE[Date])
+)
+
+// ---- YoY Week Unit Growth % ----
+YoY Week Unit Growth % :=
+VAR Num = [Unit Sales]-[Unit Sales LW LY]
+RETURN
+DIVIDE(Num, [Unit Sales LW LY])
+
+// ---- Unit Sales YTD LY ----
+Unit Sales YTD LY :=
+CALCULATE (
+   [Unit Sales],
+   SAMEPERIODLASTYEAR (
+       DATESYTD ( DIM_DATE[Date] )
+   )
+)
+
+// ---- Unit Sales YTD YoY ----
+Unit Sales YTD YoY :=
+VAR Num = [Unit Sales YTD]-[Unit Sales YTD LY]
+RETURN
+DIVIDE(Num, [Unit Sales YTD LY])
+
+// ---- WoW Value Growth % ----
+WoW Value Growth % :=
+VAR LWVal =
+   CALCULATE (
+       [Value Sales],
+       DATEADD (
+           DIM_DATE[Date],
+           -7,
+           DAY
+       )
+   )
+RETURN
+DIVIDE (
+       ( [Value Sales] - LWVal ),
+       LWVal
+)
+
+// ---- Value Sales LW LY ----
+Value Sales LW LY :=
+CALCULATE(
+[Value Sales],
+SAMEPERIODLASTYEAR(DIM_DATE[Date])
+)
+
+// ---- YoY Week Value Growth % ----
+YoY Week Value Growth % :=
+VAR Num = [Value Sales]-[Value Sales LW LY]
+RETURN
+DIVIDE(Num, [Value Sales LW LY])
+
+// ---- Value Sales YTD LY ----
+Value Sales YTD LY :=
+CALCULATE (
+   [Value Sales],
+   SAMEPERIODLASTYEAR (
+       DATESYTD ( DIM_DATE[Date] )
+   )
+)
+
+// ---- Value Sales YTD YoY ----
+Value Sales YTD YoY :=
+VAR Num = [Value Sales YTD]-[Value Sales YTD LY]
+RETURN
+DIVIDE(Num, [Value Sales YTD LY])
+
+// ---- Unit Sales MTD ----
+Unit Sales MTD :=
+CALCULATE(
+[Unit Sales],
+DATESMTD(DIM_DATE[Date])
+)
+
+// ---- Value Sales MTD ----
+Value Sales MTD :=
+CALCULATE(
+[Value Sales],
+DATESMTD(DIM_DATE[Date])
+)
+
+
+//==============================================================================
+// CHANNEL SPLIT (ONLINE VS STORE)
+//==============================================================================
+
+// ---- Online Units ----
+Online Units :=
+CALCULATE(
+[Unit Sales],
+CONTAINSROW(
+{
+"UK - 887",
+"UK - 889"
+},
+FCT_SALES_LINES[Store Code]
+)
+)
+
+// ---- Store Units ----
+Store Units :=
+CALCULATE(
+[Unit Sales],
+NOT CONTAINSROW(
+{
+"UK - 887",
+"UK - 889"
+},
+FCT_SALES_LINES[Store Code]
+)
+)
+
+// ---- Online Unit Sales % ----
+Online Unit Sales % :=
+VAR OUPSales =
+    CALCULATE (
+       [Unit Sales],
+        CONTAINSROW (
+           {
+               "UK - 887",
+               "UK - 889"
+           },
+            FCT_SALES_LINES[Store Code]
+       )
+   )
+   
+RETURN
+    DIVIDE (
+        OUPSales,
+        [Unit Sales]
+   )
+
+// ---- Store Unit Sales % ----
+Store Unit Sales % :=
+VAR SUPSales =
+    CALCULATE (
+        [Unit Sales],
+        NOT CONTAINSROW (
+           {
+               "UK - 887",
+               "UK - 889"
+           },
+            FCT_SALES_LINES[Store Code]
+       )
+   )
+   
+RETURN
+   DIVIDE (
+       SUPSales,
+        FCT_SALES_LINES[Unit Sales]
+   )
+
+// ---- Online Value Sales % ----
+Online Value Sales % :=
+VAR OVPSales =
+    CALCULATE (
+       [Value Sales],
+        CONTAINSROW (
+           {
+               "UK - 887",
+               "UK - 889"
+           },
+            FCT_SALES_LINES[Store Code]
+       )
+   )
+   
+RETURN
+    DIVIDE (
+        OVPSales,
+        [Value Sales]
+   )
+
+// ---- Store Value Sales % ----
+Store Value Sales % :=
+VAR SVPSales =
+    CALCULATE (
+        [Value Sales],
+        NOT CONTAINSROW (
+           {
+               "UK - 887",
+               "UK - 889"
+           },
+            FCT_SALES_LINES[Store Code]
+       )
+   )
+   
+RETURN
+   DIVIDE (
+       SVPSales,
+        FCT_SALES_LINES[Value Sales]
+   )
+
+// ---- Software Online Unit Sales % ----
+Software Online Unit Sales % :=
+VAR OSUPSales =
+    CALCULATE (
+       [Software Units Sales],
+        CONTAINSROW (
+           {
+               "UK - 887",
+               "UK - 889"
+           },
+            FCT_SALES_LINES[Store Code]
+       )
+   )
+   
+RETURN
+    DIVIDE (
+        OSUPSales,
+        [Software Units Sales]
+)
+
+// ---- Software Store Unit Sales % ----
+Software Store Unit Sales % :=
+VAR SSUPSales =
+    CALCULATE (
+        [Software Units Sales],
+        NOT CONTAINSROW (
+           {
+               "UK - 887",
+               "UK - 889"
+           },
+            FCT_SALES_LINES[Store Code]
+       )
+   )
+   
+RETURN
+DIVIDE (
+   SSUPSales,
+        FCT_SALES_LINES[Software Units Sales]
+        )
+
+// ---- Hardware Online Unit Sales % ----
+Hardware Online Unit Sales % :=
+VAR OHUPSales =
+    CALCULATE (
+       [Hardware Unit sales],
+        CONTAINSROW (
+           {
+               "UK - 887",
+               "UK - 889"
+           },
+            FCT_SALES_LINES[Store Code]
+       )
+   )
+   
+RETURN
+    DIVIDE (
+        OHUPSales,
+        [Hardware Unit sales]
+)
+
+// ---- Hardware Store Unit Sales % ----
+Hardware Store Unit Sales % :=
+VAR SHUPSales =
+    CALCULATE (
+        [Hardware Unit sales],
+        NOT CONTAINSROW (
+           {
+               "UK - 887",
+               "UK - 889"
+           },
+            FCT_SALES_LINES[Store Code]
+       )
+   )
+   
+RETURN
+DIVIDE (
+   SHUPSales,
+        FCT_SALES_LINES[Hardware Unit sales]
+        )
+
+// ---- Accessory Online Unit Sales % ----
+Accessory Online Unit Sales % :=
+VAR OAUPSales =
+    CALCULATE (
+       [Accessory Unit Sales],
+        CONTAINSROW (
+           {
+               "UK - 887",
+               "UK - 889"
+           },
+            FCT_SALES_LINES[Store Code]
+       )
+   )
+   
+RETURN
+    DIVIDE (
+        OAUPSales,
+        [Accessory Unit Sales]
+)
+
+// ---- Accessory Store Unit Sales % ----
+Accessory Store Unit Sales % :=
+VAR SAUPSales =
+    CALCULATE (
+        [Accessory Unit Sales],
+        NOT CONTAINSROW (
+           {
+               "UK - 887",
+               "UK - 889"
+           },
+            FCT_SALES_LINES[Store Code]
+       )
+   )
+   
+RETURN
+DIVIDE (
+   SAUPSales,
+        FCT_SALES_LINES[Accessory Unit Sales]
+        )
+
+// ---- Digital Online Unit Sales % ----
+Digital Online Unit Sales % :=
+VAR ODUPSales =
+    CALCULATE (
+       [Digital Download Unit Sales],
+        CONTAINSROW (
+           {
+               "UK - 887",
+               "UK - 889"
+           },
+            FCT_SALES_LINES[Store Code]
+       )
+   )
+   
+RETURN
+    DIVIDE (
+        ODUPSales,
+        [Digital Download Unit Sales]
+)
+
+// ---- Digital Store Unit Sales % ----
+Digital Store Unit Sales % :=
+VAR SDUPSales =
+    CALCULATE (
+        [Digital Download Unit Sales],
+        NOT CONTAINSROW (
+           {
+               "UK - 887",
+               "UK - 889"
+           },
+            FCT_SALES_LINES[Store Code]
+       )
+   )
+   
+RETURN
+DIVIDE (
+   SDUPSales,
+        FCT_SALES_LINES[Digital Download Unit Sales]
+        )
+
+
+//==============================================================================
+// CATEGORY SPLITS (SOFTWARE / HARDWARE / ACCESSORY / DIGITAL)
+//==============================================================================
+
+// ---- Software Units Sales ----
+Software Units Sales :=
+CALCULATE(
+[Unit Sales],
+DIM_PRODUCT[Class Code] = "S"
+)
+
+// ---- Hardware Unit sales ----
+Hardware Unit sales :=
+CALCULATE(
+[Unit Sales],
+DIM_PRODUCT[Class Code] = "H"
+)
+
+// ---- Accessory Unit Sales ----
+Accessory Unit Sales :=
+CALCULATE(
+[Unit Sales],
+DIM_PRODUCT[Class Code] = "A"
+)
+
+// ---- Accessory Value Sales ----
+Accessory Value Sales :=
+CALCULATE(
+[Value Sales],
+DIM_PRODUCT[Class Code] = "A"
+)
+
+// ---- Hardware Value sales ----
+Hardware Value sales :=
+CALCULATE(
+[Value Sales],
+DIM_PRODUCT[Class Code] = "H"
+)
+
+// ---- Software Value Sales ----
+Software Value Sales :=
+CALCULATE(
+[Value Sales],
+DIM_PRODUCT[Class Code] = "S"
+)
+
+// ---- Digital Download Unit Sales ----
+Digital Download Unit Sales :=
+CALCULATE(
+[Unit Sales],
+DIM_PRODUCT[Class Code] = "D"
+)
+
+// ---- Digital Download Value Sales ----
+Digital Download Value Sales :=
+CALCULATE(
+[Value Sales],
+DIM_PRODUCT[Class Code] = "D"
+)
+
+// ---- Software Unit Sales LY ----
+Software Unit Sales LY :=
+CALCULATE (
+   [Software Units Sales],
+   DATEADD (
+       DIM_DATE[Date],
+       -1,
+       YEAR
+   )
+)
+
+// ---- Accessory Unit Sales LY ----
+Accessory Unit Sales LY :=
+CALCULATE (
+   [Accessory Unit Sales],
+   DATEADD (
+       DIM_DATE[Date],
+       -1,
+       YEAR
+   )
+)
+
+// ---- Hardware Unit Sales LY ----
+Hardware Unit Sales LY :=
+CALCULATE (
+   [Hardware Unit sales],
+   DATEADD (
+       DIM_DATE[Date],
+       -1,
+       YEAR
+   )
+)
+
+// ---- Digital Download Unit Sales LY ----
+Digital Download Unit Sales LY :=
+CALCULATE (
+   [Digital Download Unit Sales],
+   DATEADD (
+       DIM_DATE[Date],
+       -1,
+       YEAR
+   )
+)
+
+// ---- YoY Software Unit Growth % ----
+YoY Software Unit Growth % :=
+VAR LYSUnit =
+   CALCULATE (
+       [Software Units Sales],
+       DATEADD (
+           DIM_DATE[Date],
+           -1,
+           YEAR
+       )
+   )
+RETURN
+DIVIDE (
+       ( [Software Units Sales] - LYSUnit ),
+       LYSUnit
+   )
+
+// ---- PS4 Software Units ----
+PS4 Software Units :=
+CALCULATE(
+[Software Units Sales],
+SoftwareSKU[SUBCLASS_CODE] = "PS4"
+)
+
+// ---- PS5 Software Units ----
+PS5 Software Units :=
+CALCULATE(
+[Software Units Sales],
+SoftwareSKU[SUBCLASS_CODE] = "PS5"
+)
+
+
+//==============================================================================
+// MARKET BASKET ANALYSIS (SUPPORT / CONFIDENCE / LIFT)
+//==============================================================================
+
+// ---- Orders And ----
+Orders And :=
+CALCULATE (
+   [Orders (No Return Count)],
+   ALL ( 'DIM_PRODUCT' ),
+   USERELATIONSHIP ( FCT_SALES_LINES[Product Key], 'DIM_ANDPRODUCT'[AND Product Key] )
+)
+
+// ---- Orders Both (Internal) ----
+Orders Both (Internal) :=
+VAR OrderswithAndProducts =
+   CALCULATETABLE (
+       SUMMARIZE (
+           FCT_SALES_LINES,
+           FCT_SALES_LINES[Invoice No]
+       ),
+       ALL ( 'DIM_PRODUCT' ),
+       ALL ( 'FCT_SALES_LINES'[Product Key] ),
+       USERELATIONSHIP ( FCT_SALES_LINES[Product Key], 'DIM_ANDPRODUCT'[AND Product Key] )
+   )
+VAR Result =
+   CALCULATE (
+       [Orders (No Return Count)],
+       KEEPFILTERS ( OrderswithAndProducts )
+   )
+RETURN
+   Result
+
+// ---- Orders Both ----
+Orders Both :=
+IF (
+   ISEMPTY (
+       INTERSECT (
+           DISTINCT ( 'DIM_PRODUCT'[Product Key] ),
+           DISTINCT ( 'DIM_ANDPRODUCT'[AND Product Key] )
+       )
+   ),
+   [Orders Both (Internal)]
+)
+
+// ---- % Orders Support ----
+% Orders Support :=
+DIVIDE ([Orders Both], [Orders Total])
+
+// ---- % Orders Confidence ----
+% Orders Confidence :=
+DIVIDE ([Orders Both], [Orders (No Return Count)])
+
+// ---- Orders Lift ----
+Orders Lift :=
+DIVIDE (
+   [% Orders Confidence],
+   DIVIDE (
+       [Orders And],
+       [Orders Total]
+   )
+)
+
+// ---- Store Orders Both (Internal) ----
+Store Orders Both (Internal) :=
+VAR OrderswithAndProducts =
+   CALCULATETABLE (
+       SUMMARIZE (
+           FCT_SALES_LINES,
+           FCT_SALES_LINES[Invoice No]
+       ),
+       ALL ( 'DIM_PRODUCT' ),
+       ALL ( 'FCT_SALES_LINES'[Product Key] ),
+       USERELATIONSHIP ( FCT_SALES_LINES[Product Key], 'DIM_ANDPRODUCT'[AND Product Key] )
+   )
+VAR Result =
+   CALCULATE (
+       [Store Orders (No Return Count)],
+       KEEPFILTERS ( OrderswithAndProducts )
+   )
+RETURN
+   Result
+
+// ---- Store Orders Both ----
+Store Orders Both :=
+IF (
+   ISEMPTY (
+       INTERSECT (
+           DISTINCT ( 'DIM_PRODUCT'[Product Key] ),
+           DISTINCT ( 'DIM_ANDPRODUCT'[AND Product Key] )
+       )
+   ),
+   [Store Orders Both (Internal)]
+)
+
+// ---- Store Orders And ----
+Store Orders And :=
+CALCULATE (
+   [Store Orders (No Return Count)],
+   ALL ( 'DIM_PRODUCT' ),
+   USERELATIONSHIP ( FCT_SALES_LINES[Product Key], 'DIM_ANDPRODUCT'[AND Product Key] )
+)
+
+// ---- % Store Orders Confidence ----
+% Store Orders Confidence :=
+DIVIDE ([Store Orders Both], [Store Orders (No Return Count)])
+
+// ---- Online Orders And ----
+Online Orders And :=
+CALCULATE (
+   [Online Orders (No Return Count)],
+   ALL ( 'DIM_PRODUCT' ),
+   USERELATIONSHIP ( FCT_SALES_LINES[Product Key], 'DIM_ANDPRODUCT'[AND Product Key] )
+)
+
+// ---- Online Orders Both (Internal) ----
+Online Orders Both (Internal) :=
+VAR OrderswithAndProducts =
+   CALCULATETABLE (
+       SUMMARIZE (
+           FCT_SALES_LINES,
+           FCT_SALES_LINES[Invoice No]
+       ),
+       ALL ( 'DIM_PRODUCT' ),
+       ALL ( 'FCT_SALES_LINES'[Product Key] ),
+       USERELATIONSHIP ( FCT_SALES_LINES[Product Key], 'DIM_ANDPRODUCT'[AND Product Key] )
+   )
+VAR Result =
+   CALCULATE (
+       [Online Orders (No Return Count)],
+       KEEPFILTERS ( OrderswithAndProducts )
+   )
+RETURN
+   Result
+
+// ---- Online Orders Both ----
+Online Orders Both :=
+IF (
+   ISEMPTY (
+       INTERSECT (
+           DISTINCT ( 'DIM_PRODUCT'[Product Key] ),
+           DISTINCT ( 'DIM_ANDPRODUCT'[AND Product Key] )
+       )
+   ),
+   [Online Orders Both (Internal)]
+)
+
+// ---- % Online Order Confidence ----
+% Online Order Confidence :=
+DIVIDE ([Online Orders Both], [Online Orders (No Return Count)])
+
+
+//==============================================================================
+// ORDER COUNTS & RETURNS HANDLING
+//==============================================================================
+
+// ---- Orders (No Return Count) ----
+Orders (No Return Count) :=
+CALCULATE (
+   SUMX (
+       SUMMARIZE (
+            FCT_SALES_LINES,
+            FCT_SALES_LINES[Invoice No]
+       ),
+        1
+   ),
+   NOT CONTAINSROW (
+       {
+           "DISC-RET",
+           "REG-RET"
+       },
+       FCT_SALES_LINES[Invoice Type]
+   )
+)
+
+// ---- Orders Total ----
+Orders Total :=
+CALCULATE (
+   [Orders (No Return Count)],
+   ALL ( 'DIM_PRODUCT' )
+)
+
+// ---- Online Orders (No Return Count) ----
+Online Orders (No Return Count) :=
+CALCULATE(
+[Orders (No Return Count)],
+CONTAINSROW({"UK - 887", "UK - 889"}, FCT_SALES_LINES[Store Code]
+)
+)
+
+// ---- Store Orders (No Return Count) ----
+Store Orders (No Return Count) :=
+CALCULATE(
+[Orders (No Return Count)],
+NOT CONTAINSROW({"UK - 887","UK - 889"}, FCT_SALES_LINES[Store Code]
+)
+)
+
+// ---- Unit Sales (No Returns) ----
+Unit Sales (No Returns) :=
+CALCULATE(
+[Unit Sales],
+NOT CONTAINSROW(
+{"DISC-RET",
+"REG-RET"},
+FCT_SALES_LINES[Invoice Type]
+)
+)
+
+// ---- Store Units (No Returns) ----
+Store Units (No Returns) :=
+CALCULATE(
+[Unit Sales (No Returns)],
+NOT CONTAINSROW(
+{"UK - 887",
+"UK - 889"},
+FCT_SALES_LINES[Store Code]
+)
+)
+
+// ---- Online Units (No Returns) ----
+Online Units (No Returns) :=
+CALCULATE (
+   [Unit Sales (No Returns)],
+   CONTAINSROW (
+       {
+           "UK - 887",
+           "UK - 889"
+       },
+       FCT_SALES_LINES[Store Code]
+   )
+)
+
