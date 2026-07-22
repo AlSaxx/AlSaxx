@@ -1,0 +1,1684 @@
+// Omnichannel Semantic Model — Power BI
+// Full DAX measure catalogue, exported via DAX Studio (EVALUATE against $SYSTEM.MDSCHEMA_MEASURES)
+//
+// ANONYMISED: employer, brand names and the retail partner name have been replaced with
+// generic placeholders (Brand A / Brand B / Retail Partner) throughout, including inside
+// measure names. Structure, technique and logic are unchanged from the production model.
+//
+// Tracks vehicle Order-to-Purchase (OTP) conversion across the sales and lead pipeline,
+// with year-on-year comparisons, conditional-formatting helper measures for report visuals
+// (colour-coded and arrow-coded YoY indicators), and brand/retail-partner-level splits using
+// USERELATIONSHIP for a customer table with an alternate active date relationship.
+//
+// Also includes a Calculation Group (Time Intelligence) — a single set of calculation items
+// applying R6M / MTD / QTD / YTD / Dynamic period-shift logic to whichever measure the report
+// has selected (SELECTEDMEASURE()), rather than duplicating each period variant per measure.
+// Uses an inactive relationship (DIM_Inactive_Masterdate) activated per calculation item via
+// USERELATIONSHIP, avoiding ambiguous active relationships on the date dimension.
+
+//==============================================================================
+// ORDER-TO-PURCHASE CORE MEASURES
+//==============================================================================
+
+// ---- Abandoned Orders ----
+Abandoned Orders :=
+[Total Orders]-[Total Valid Orders]
+
+// ---- Avg (Weighted) Difference Order & Sales Value ----
+Avg (Weighted) Difference Order & Sales Value :=
+CALCULATE (
+   AVERAGEX ( FCT_Transactions, FCT_Transactions[d_InvoiceValue] - FCT_Transactions[o_Price] ),
+   FCT_Transactions[Order to Purchase Filter]
+       IN {
+           "Order to Purchase",
+           "Lead Enabled Order to Purchase",
+           "Order to Purchase - Diff Car",
+           "Lead Enabled Order to Purchase - Diff Car"
+       }
+)
+
+// ---- Avg Days Order to Purchase ----
+Avg Days Order to Purchase :=
+CALCULATE (
+                               AVERAGE (FCT_Transactions[OrdertoPurchaseDays]),
+                               FCT_Transactions[Order to Purchase Filter] IN {
+                                                                               "Order to Purchase",
+                                                                               "Lead Enabled Order to Purchase",
+                                                                               "Order to Purchase - Diff Car",
+                                                                               "Lead Enabled Order to Purchase - Diff Car"
+                                                                               }
+                               )
+
+// ---- AVG Order Value ----
+AVG Order Value :=
+CALCULATE (
+   AVERAGEX ( FCT_Transactions, FCT_Transactions[o_Price] ),
+   FCT_Transactions[Order to Purchase Filter]
+       IN {
+           "Order to Purchase",
+           "Lead Enabled Order to Purchase",
+           "Order to Purchase - Diff Car",
+           "Lead Enabled Order to Purchase - Diff Car"
+       }
+)
+
+// ---- AVG Sales Value ----
+AVG Sales Value :=
+VAR table_ORS =
+   SELECTCOLUMNS (
+       CALCULATETABLE (
+           FCT_Transactions,
+           FCT_Transactions[Order to Purchase Filter]
+               IN {
+                   "Order to Purchase",
+                   "Lead Enabled Order to Purchase",
+                   "Order to Purchase - Diff Car",
+                   "Lead Enabled Order to Purchase - Diff Car"
+               }
+               ),
+           "d_InvoiceValue", FCT_Transactions[d_InvoiceValue]
+       )
+RETURN
+   AVERAGEX(table_ORS,[d_InvoiceValue])
+
+// ---- CF Labels ----
+CF Labels :=
+IF(
+           [Total Purchases (YoY%)] > 0.1,
+           "#19a337",
+           "#333333"
+       )
+
+// ---- Date Slicer Filter ----
+Date Slicer Filter :=
+VAR _value = SELECTEDVALUE( TimeIntellFilters[Name])
+RETURN
+   IF( _value = "Dynamic", 0, 1 )
+
+// ---- Date Text ----
+Date Text :=
+IF( [Date Slicer Filter] = 0,
+   "Dynamic date filter activated",
+   "Dynamic date filter NOT Activated"
+)
+
+// ---- Date Text Background ----
+Date Text Background :=
+IF( [Date Slicer Filter] = 0,
+   "White",
+   "#666666"
+)
+
+// ---- Date Text Deactivate Message ----
+Date Text Deactivate Message :=
+IF( [Date Slicer Filter] = 0,
+   "White",
+   "#666666"
+)
+
+// ---- Labels Bar Chart - Centre ----
+Labels Bar Chart - Centre :=
+VAR _ItemName =
+   SELECTEDVALUE(
+               DIM_Retailer[Centre]
+               )
+VAR _Value =
+   FORMAT(
+       [Total Purchases (ORS & OES)],
+       "#,##0"
+       )
+VAR _Label = _ItemName & " | " & _Value
+RETURN
+_Label
+
+// ---- Labels Bar Chart - Group ----
+Labels Bar Chart - Group :=
+VAR _ItemName =
+   SELECTEDVALUE(
+               DIM_Retailer[Group]
+               )
+VAR _Value =
+   FORMAT(
+       [Total Purchases (ORS & OES)],
+       "#,##0"
+       )
+VAR _Label = _ItemName & " | " & _Value
+RETURN
+_Label
+
+// ---- Labels Placeholder ----
+Labels Placeholder :=
+0
+
+// ---- Online Enabled Sales (OES) ----
+Online Enabled Sales (OES) :=
+CALCULATE (
+   COUNTROWS ( FCT_signupEnabledSales ),
+   FCT_signupEnabledSales[PurchaseActivity]
+       IN { "enabled online sale", "lead enabled online sale" }
+)
+
+// ---- Online Retail Sales (ORS) ----
+Online Retail Sales (ORS) :=
+CALCULATE (
+   DISTINCTCOUNT(FCT_Transactions[o_OrderEventId]),
+   FCT_Transactions[Order to Purchase Filter] IN {"Order to Purchase","Lead Enabled Order to Purchase"}
+)
+
+// ---- Order Value ----
+Order Value :=
+CALCULATE (
+   SUMX ( FCT_Transactions, FCT_Transactions[o_Price] ),
+   FCT_Transactions[Order to Purchase Filter]
+       IN {
+           "Order to Purchase",
+           "Lead Enabled Order to Purchase",
+           "Order to Purchase - Diff Car",
+           "Lead Enabled Order to Purchase - Diff Car"
+       }
+)
+
+// ---- Sales Value ----
+Sales Value :=
+VAR table_ORS =
+   SELECTCOLUMNS (
+       CALCULATETABLE (
+           FCT_Transactions,
+           FCT_Transactions[Order to Purchase Filter]
+               IN {
+                   "Order to Purchase",
+                   "Lead Enabled Order to Purchase",
+                   "Order to Purchase - Diff Car",
+                   "Lead Enabled Order to Purchase - Diff Car"
+               }
+       ),
+       "d_InvoiceValue", FCT_Transactions[d_InvoiceValue]
+   )
+RETURN
+   SUMX ( table_ORS, [d_InvoiceValue] )
+
+// ---- Slicer Selection Table ----
+Slicer Selection Table :=
+Switch(SELECTEDVALUE(SelectableColumns[ColumnName]),
+"Time Dimension",
+   IF (
+       COUNTROWS(ALLSELECTED(TimeIntellFilters[Name])) <> COUNTROWS(ALL(TimeIntellFilters[Name])),
+       CONCATENATEX(ALLSELECTED(TimeIntellFilters[Name]),TimeIntellFilters[Name],","),
+       "Unselected"
+   ),
+"Year",
+   IF (
+       COUNTROWS(ALLSELECTED(DIM_Masterdate[Year])) <> COUNTROWS(ALL(DIM_Masterdate[Year])),
+       CONCATENATEX(ALLSELECTED(DIM_Masterdate[Year]),DIM_Masterdate[Year],","),
+       "Unselected"
+   ),
+"Month Year",
+   IF (
+       COUNTROWS(ALLSELECTED(DIM_Masterdate[monthYear])) <> COUNTROWS(ALL(DIM_Masterdate[monthYear])),
+       CONCATENATEX(ALLSELECTED(DIM_Masterdate[monthYear]),DIM_Masterdate[monthYear],","),
+       "Unselected"
+   ),
+"Brand",
+   IF (
+   COUNTROWS(ALLSELECTED(DIM_Retailer[Brand Name])) <> COUNTROWS(ALL(DIM_Retailer[Brand Name])),
+   CONCATENATEX(ALLSELECTED(DIM_Retailer[Brand Name]),DIM_Retailer[Brand Name],","),
+   "Unselected"
+   ),
+"Group",
+   IF (
+   COUNTROWS(ALLSELECTED(DIM_Retailer[Group])) <> COUNTROWS(ALL(DIM_Retailer[Group])),
+   CONCATENATEX(ALLSELECTED(DIM_Retailer[Group]),DIM_Retailer[Group],","),
+   "Unselected"
+   ),
+"Centre",
+   IF (
+   COUNTROWS(ALLSELECTED(DIM_Retailer[Centre])) <> COUNTROWS(ALL(DIM_Retailer[Centre])),
+   CONCATENATEX(ALLSELECTED(DIM_Retailer[Centre]),DIM_Retailer[Centre],","),
+   "Unselected"
+   ),
+"Model",
+   IF (
+   COUNTROWS(ALLSELECTED(DIM_Model[Model])) <> COUNTROWS(ALL(DIM_Model[Model])),
+   CONCATENATEX(ALLSELECTED(DIM_Model[Model]),DIM_Model[Model],","),
+   "Unselected"
+   )
+)
+
+// ---- Sum Volume ----
+Sum Volume :=
+SUM('orderToInvoiceModel'[Volume])
+
+// ---- Tooltip R1C1 ----
+Tooltip R1C1 :=
+CALCULATE(
+                               SELECTEDVALUE(
+                                           'Measure Definitions'[Definition]
+                                           ),
+                                           'Measure Definitions'[ID] IN {"R1C1"}
+                                       )
+
+// ---- Tooltip R1C2 ----
+Tooltip R1C2 :=
+CALCULATE(
+                               SELECTEDVALUE(
+                                           'Measure Definitions'[Definition]
+                                           ),
+                                           'Measure Definitions'[ID] IN {"R1C2"}
+                                       )
+
+// ---- Tooltip R1C3 ----
+Tooltip R1C3 :=
+CALCULATE(
+                               SELECTEDVALUE(
+                                           'Measure Definitions'[Definition]
+                                           ),
+                                           'Measure Definitions'[ID] IN {"R1C3"}
+                                       )
+
+// ---- Tooltip R1C4 ----
+Tooltip R1C4 :=
+CALCULATE(
+                               SELECTEDVALUE(
+                                           'Measure Definitions'[Definition]
+                                           ),
+                                           'Measure Definitions'[ID] IN {"R1C4"}
+                                       )
+
+// ---- Tooltip R2C1 ----
+Tooltip R2C1 :=
+CALCULATE(
+                                   SELECTEDVALUE(
+                                               'Measure Definitions'[Definition]
+                                               ),
+                                               'Measure Definitions'[ID] IN {"R2C1"}
+                                           )
+
+// ---- Tooltip R2C2 ----
+Tooltip R2C2 :=
+CALCULATE(
+                               SELECTEDVALUE(
+                                           'Measure Definitions'[Definition]
+                                            ),
+                                           'Measure Definitions'[ID] IN {"R2C2"}
+                               )
+
+// ---- Tooltip R2C3 ----
+Tooltip R2C3 :=
+CALCULATE(
+                               SELECTEDVALUE(
+                                           'Measure Definitions'[Definition]
+                                            ),
+                                           'Measure Definitions'[ID] IN {"R2C3"}
+                               )
+
+// ---- Tooltip R2C4 ----
+Tooltip R2C4 :=
+CALCULATE(
+                                   SELECTEDVALUE(
+                                           'Measure Definitions'[Definition]
+                                            ),
+                                           'Measure Definitions'[ID] IN {"R2C4"}
+                                   )
+
+// ---- Tooltip R3C1 ----
+Tooltip R3C1 :=
+CALCULATE(
+                                   SELECTEDVALUE(
+                                           'Measure Definitions'[Definition]
+                                            ),
+                                           'Measure Definitions'[ID] IN {"R3C1"}
+                                   )
+
+// ---- Tooltip R3C2 ----
+Tooltip R3C2 :=
+CALCULATE(
+                                   SELECTEDVALUE(
+                                           'Measure Definitions'[Definition]
+                                            ),
+                                           'Measure Definitions'[ID] IN {"R3C2"}
+                                   )
+
+// ---- Tooltip R3C3 ----
+Tooltip R3C3 :=
+CALCULATE(
+                                   SELECTEDVALUE(
+                                           'Measure Definitions'[Definition]
+                                            ),
+                                           'Measure Definitions'[ID] IN {"R3C3"}
+                                   )
+
+// ---- Tooltip R3C4 ----
+Tooltip R3C4 :=
+CALCULATE(
+                                   SELECTEDVALUE(
+                                           'Measure Definitions'[Definition]
+                                            ),
+                                           'Measure Definitions'[ID] IN {"R3C4"}
+                                   )
+
+// ---- Total Orders ----
+Total Orders :=
+COUNTROWS('order')
+
+// ---- Total Purchases (All Purchases) ----
+Total Purchases (All Purchases) :=
+VAR ORS =
+   CALCULATE (
+       DISTINCTCOUNT ( FCT_Transactions[o_OrderEventId] ),
+       FCT_Transactions[Order to Purchase Filter]
+           IN {
+               "Order to New Car Purchase",
+               "Order to Purchase",
+               "Lead Enabled Order to Purchase",
+               "Order to Purchase - Diff Car",
+               "Lead Enabled Order to Purchase - Diff Car"
+           }
+   )
+VAR OES =
+   CALCULATE (
+       COUNTROWS ( FCT_signupEnabledSales ),
+       FCT_signupEnabledSales[PurchaseActivity]
+           IN { "sign up to new purchase", "enabled online sale", "lead enabled online sale" }
+   )
+RETURN
+   ORS + OES
+
+// ---- Total Purchases (ORS & OES) ----
+Total Purchases (ORS & OES) :=
+[Online Retail Sales (ORS)]+[Online Enabled Sales (OES)]
+
+// ---- Total Purchases (R12M) ----
+Total Purchases (R12M) :=
+CALCULATE(
+                           [Total Purchases (ORS & OES)],
+                           DATESINPERIOD(DIM_Masterdate[Date],
+                                       MAX (DIM_Masterdate[Date]),
+                                       -12,
+                                       MONTH
+                               )
+                           )
+
+// ---- Total Valid Orders ----
+Total Valid Orders :=
+VAR ORS =
+   CALCULATE (
+       DISTINCTCOUNT ( FCT_Transactions[o_OrderEventId] ),
+       FCT_Transactions[Order to Purchase Filter]
+           IN {
+               "Order to New Car Purchase",
+               "Order to Purchase",
+               "Lead Enabled Order to Purchase",
+               "Order to Purchase - Diff Car",
+               "Lead Enabled Order to Purchase - Diff Car"
+           }
+   )
+RETURN
+   ORS
+
+
+//==============================================================================
+// TIME INTELLIGENCE (YOY / LY)
+//==============================================================================
+
+// ---- Abandoned Orders (YoY%) ----
+Abandoned Orders (YoY%) :=
+VAR AbOrdTY = [Abandoned Orders]
+VAR AbOrdLY = [Abandoned Orders LY]
+VAR TYLY = AbOrdTY-AbOrdLY
+RETURN
+DIVIDE(TYLY,AbOrdLY)
+
+// ---- Abandoned Orders LY ----
+Abandoned Orders LY :=
+CALCULATE(
+       [Abandoned Orders],
+       DATEADD(DIM_Masterdate[Date],
+               -1,
+               YEAR))
+
+// ---- Avg (Weighted) Difference Order & Sales Value (YoY%) ----
+Avg (Weighted) Difference Order & Sales Value (YoY%) :=
+VAR TY = [Avg (Weighted) Difference Order & Sales Value]
+   VAR LY = [Avg (Weighted) Difference Order & Sales Value LY]
+   VAR TYLY = TY-LY
+RETURN
+   DIVIDE(
+           TYLY,
+           LY
+       )
+
+// ---- Avg (Weighted) Difference Order & Sales Value LY ----
+Avg (Weighted) Difference Order & Sales Value LY :=
+CALCULATE(
+                       [Avg (Weighted) Difference Order & Sales Value],
+                           DATEADD(
+                               DIM_Masterdate[Date],
+                               -1,
+                               YEAR
+                           )
+                       )
+
+// ---- Avg Days Order to Purchase (YoY%) ----
+Avg Days Order to Purchase (YoY%) :=
+VAR TY = [Avg Days Order to Purchase]
+VAR LY = [Avg Days Order to Purchase LY]
+VAR TYLY = TY - LY
+RETURN
+   DIVIDE ( TYLY, LY )
+
+// ---- Avg Days Order to Purchase LY ----
+Avg Days Order to Purchase LY :=
+CALCULATE ( [Avg Days Order to Purchase], DATEADD ( DIM_Masterdate[Date], -1, YEAR ) )
+
+// ---- AVG Order Value (YoY%) ----
+AVG Order Value (YoY%) :=
+VAR TY = [AVG Order Value]
+   VAR LY = [AVG Order Value LY]
+   VAR TYLY = TY-LY
+RETURN
+   DIVIDE(
+           TYLY,
+           LY
+       )
+
+// ---- AVG Order Value LY ----
+AVG Order Value LY :=
+CALCULATE(
+                   [AVG Order Value],
+                   DATEADD(
+                           DIM_Masterdate[Date],
+                           -1,
+                           YEAR
+                           )
+               )
+
+// ---- AVG Sales Value (YoY%) ----
+AVG Sales Value (YoY%) :=
+VAR TY = [AVG Sales Value]
+   VAR LY = [AVG Sales Value LY]
+   VAR TYLY = TY-LY
+RETURN
+   DIVIDE(
+           TYLY,
+           LY
+       )
+
+// ---- AVG Sales Value LY ----
+AVG Sales Value LY :=
+CALCULATE(
+                   [AVG Sales Value],
+                   DATEADD(
+                           DIM_Masterdate[Date],
+                           -1,
+                           YEAR
+                           )
+               )
+
+// ---- Online Enabled Sales (YoY%) ----
+Online Enabled Sales (YoY%) :=
+VAR NoOrPurTY = [Online Enabled Sales (OES)]
+VAR NoOrPurLY = [Online Enabled Sales LY]
+VAR TYLY = NoOrPurTY-NoOrPurLY
+RETURN
+DIVIDE(TYLY,NoOrPurLY)
+
+// ---- Online Enabled Sales LY ----
+Online Enabled Sales LY :=
+CALCULATE(
+       [Online Enabled Sales (OES)],
+       DATEADD(DIM_Masterdate[Date],
+               -1,
+               YEAR))
+
+// ---- Online Retail Sales (ORS) LY ----
+Online Retail Sales (ORS) LY :=
+CALCULATE(
+       [Online Retail Sales (ORS)],
+       DATEADD(DIM_Masterdate[Date],
+               -1,
+               YEAR))
+
+// ---- Online Retail Sales (ORS) YoY% ----
+Online Retail Sales (ORS) YoY% :=
+VAR OrPurTY = [Online Retail Sales (ORS)]
+VAR OrPurLY = [Online Retail Sales (ORS) LY]
+VAR TYLY = OrPurTY-OrPurLY
+RETURN
+DIVIDE(TYLY,OrPurLY)
+
+// ---- Order Value (YoY%) ----
+Order Value (YoY%) :=
+VAR TY = [Order Value]
+   VAR LY = [Order Value LY]
+   VAR TYLY = TY-LY
+RETURN
+   DIVIDE(
+           TYLY,
+           LY
+       )
+
+// ---- Order Value LY ----
+Order Value LY :=
+CALCULATE(
+                   [Order Value],
+                   DATEADD(
+                           DIM_Masterdate[Date],
+                           -1,
+                           YEAR
+                           )
+               )
+
+// ---- Sales Value (YoY%) ----
+Sales Value (YoY%) :=
+VAR TY = [Sales Value]
+   VAR LY = [Sales Value LY]
+   VAR TYLY = TY-LY
+RETURN
+   DIVIDE(
+           TYLY,
+           LY
+       )
+
+// ---- Sales Value LY ----
+Sales Value LY :=
+CALCULATE(
+                   [Sales Value],
+                   DATEADD(
+                           DIM_Masterdate[Date],
+                           -1,
+                           YEAR
+                           )
+               )
+
+// ---- Total Orders (YoY%) ----
+Total Orders (YoY%) :=
+VAR TotOrdTY = [Total Orders]
+VAR TotOrdLY = [Total Orders LY]
+VAR TYLY = TotOrdTY-TotOrdLY
+RETURN
+DIVIDE(TYLY,TotOrdLY)
+
+// ---- Total Orders LY ----
+Total Orders LY :=
+CALCULATE(
+       [Total Orders],
+       DATEADD(DIM_Masterdate[Date],
+               -1,
+               YEAR))
+
+// ---- Total Purchases (R12M) LY ----
+Total Purchases (R12M) LY :=
+CALCULATE(
+                           [Total Purchases (R12M)],
+                           DATEADD(DIM_Masterdate[Date],
+                                   -1,
+                                   YEAR
+                               )
+                       )
+
+// ---- Total Purchases (YoY%) ----
+Total Purchases (YoY%) :=
+VAR TotPurTY = [Total Purchases (ORS & OES)]
+VAR TotPurLY = [Total Purchases LY]
+VAR TYLY = TotPurTY-TotPurLY
+RETURN
+DIVIDE(TYLY,TotPurLY)
+
+// ---- Total Purchases (YoY%) Line ----
+Total Purchases (YoY%) Line :=
+VAR UpArrow = UNICHAR(9650) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - Up Arrow
+VAR DownArrow = UNICHAR(9660) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - Down Arrow
+//VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+//VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Total Purchases (YoY%)] = BLANK(), BLANK(),
+       IF([Total Purchases (YoY%)] <= 0, DownArrow &" "& FORMAT([Total Purchases (YoY%)],"0.0%"),     //Modify VAR to preference
+           IF([Total Purchases (YoY%)] > 0, UpArrow &" "& FORMAT([Total Purchases (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Total Purchases LY ----
+Total Purchases LY :=
+CALCULATE(
+       [Total Purchases (ORS & OES)],
+       DATEADD(DIM_Masterdate[Date],
+               -1,
+               YEAR))
+
+
+//==============================================================================
+// CONDITIONAL FORMATTING HELPERS (COLOUR / ARROW INDICATORS)
+//==============================================================================
+
+// ---- Abandoned Orders (YoY%) CF ----
+Abandoned Orders (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Abandoned Orders (YoY%)] = BLANK(), BLANK(),
+       IF([Abandoned Orders (YoY%)] <= 0, GreenCircle &" "& FORMAT([Abandoned Orders (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Abandoned Orders (YoY%)] > 0, RedCircle &" "& FORMAT([Abandoned Orders (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Avg (Weighted) Difference Order & Sales Value (YoY%) CF ----
+Avg (Weighted) Difference Order & Sales Value (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Avg (Weighted) Difference Order & Sales Value (YoY%)] = BLANK(), BLANK(),
+       IF([Avg (Weighted) Difference Order & Sales Value (YoY%)] <= 0, RedCircle &" "& FORMAT([Avg (Weighted) Difference Order & Sales Value (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Avg (Weighted) Difference Order & Sales Value (YoY%)] > 0, GreenCircle &" "& FORMAT([Avg (Weighted) Difference Order & Sales Value (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Avg Days Lead to Order (YoY%) CF ----
+Avg Days Lead to Order (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Avg Days Lead to Order (YoY%)] = BLANK(), BLANK(),
+       IF([Avg Days Lead to Order (YoY%)] <= 0, RedCircle &" "& FORMAT([Avg Days Lead to Order (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Avg Days Lead to Order (YoY%)] > 0, GreenCircle &" "& FORMAT([Avg Days Lead to Order (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- AVG Days Lead to Order Text Colour ----
+AVG Days Lead to Order Text Colour :=
+IF([Avg Days Lead to Order] - [Avg Days Lead to Order LY] > 0, "#B73A3A", "#38803A")
+
+// ---- Avg Days Order to Purchase (YoY%) CF ----
+Avg Days Order to Purchase (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Avg Days Order to Purchase (YoY%)] = BLANK(), BLANK(),
+       IF([Avg Days Order to Purchase (YoY%)] <= 0, RedCircle &" "& FORMAT([Avg Days Order to Purchase (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Avg Days Order to Purchase (YoY%)] > 0, GreenCircle &" "& FORMAT([Avg Days Order to Purchase (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- AVG Days Order to Purchase Text Colour ----
+AVG Days Order to Purchase Text Colour :=
+IF([Avg Days Order to Purchase] - [Avg Days Order to Purchase LY] > 0, "#B73A3A", "#38803A")
+
+// ---- AVG Difference vs Sales Value Text Colour ----
+AVG Difference vs Sales Value Text Colour :=
+IF([Avg (Weighted) Difference Order & Sales Value] - [Avg (Weighted) Difference Order & Sales Value LY] > 0, "#38803A", "#B73A3A")
+
+// ---- AVG Order Value (YoY%) CF ----
+AVG Order Value (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([AVG Order Value (YoY%)] = BLANK(), BLANK(),
+       IF([AVG Order Value (YoY%)] <= 0, RedCircle &" "& FORMAT([AVG Order Value (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([AVG Order Value (YoY%)] > 0, GreenCircle &" "& FORMAT([AVG Order Value (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- AVG Sales Value (YoY%) CF ----
+AVG Sales Value (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([AVG Sales Value (YoY%)] = BLANK(), BLANK(),
+       IF([AVG Sales Value (YoY%)] <= 0, RedCircle &" "& FORMAT([AVG Sales Value (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([AVG Sales Value (YoY%)] > 0, GreenCircle &" "& FORMAT([AVG Sales Value (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Date Text Colour ----
+Date Text Colour :=
+IF( [Date Slicer Filter] = 0,
+   "Green",
+   "White"
+)
+
+// ---- Lead After Account Creation Text Colour ----
+Lead After Account Creation Text Colour :=
+IF([Lead Post Retail Partner Account Creation] - [Lead Post Retail Partner Account Creation LY] > 0, "#38803A", "#B73A3A")
+
+// ---- Lead Before Account Creation Text Colour ----
+Lead Before Account Creation Text Colour :=
+IF([Lead Before Retail Partner Account Creation] - [Lead Before Retail Partner Account Creation LY] > 0, "#38803A", "#B73A3A")
+
+// ---- Lead Before Online Enabled Text Colour ----
+Lead Before Online Enabled Text Colour :=
+IF([Lead to Online Enabled Sales (OES)] - [Lead to Online Enabled Sales (OES) LY] > 0, "#38803A", "#B73A3A")
+
+// ---- Lead Before Online Retail Text Colour ----
+Lead Before Online Retail Text Colour :=
+IF([Lead to Online Retail Sales (ORS)] - [Lead to Online Retail Sales (ORS) LY] > 0, "#38803A", "#B73A3A")
+
+// ---- Lead Before Retail Partner Account Creation (YoY%) CF ----
+Lead Before Retail Partner Account Creation (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Lead Before Retail Partner Account Creation (YoY%)] = BLANK(), BLANK(),
+       IF([Lead Before Retail Partner Account Creation (YoY%)] <= 0, RedCircle &" "& FORMAT([Lead Before Retail Partner Account Creation (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Lead Before Retail Partner Account Creation (YoY%)] > 0, GreenCircle &" "& FORMAT([Lead Before Retail Partner Account Creation (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Lead Before Retail Partner Order (YoY%) CF ----
+Lead Before Retail Partner Order (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Lead Before Retail Partner Order (YoY%)] = BLANK(), BLANK(),
+       IF([Lead Before Retail Partner Order (YoY%)] <= 0, RedCircle &" "& FORMAT([Lead Before Retail Partner Order (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Lead Before Retail Partner Order (YoY%)] > 0, GreenCircle &" "& FORMAT([Lead Before Retail Partner Order (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Lead Post Retail Partner Account Creation (YoY%) CF ----
+Lead Post Retail Partner Account Creation (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Lead Post Retail Partner Account Creation (YoY%)] = BLANK(), BLANK(),
+       IF([Lead Post Retail Partner Account Creation (YoY%)] <= 0, RedCircle &" "& FORMAT([Lead Post Retail Partner Account Creation (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Lead Post Retail Partner Account Creation (YoY%)] > 0, GreenCircle &" "& FORMAT([Lead Post Retail Partner Account Creation (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Lead Post Retail Partner Order (YoY%) CF ----
+Lead Post Retail Partner Order (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Lead Post Retail Partner Order (YoY%)] = BLANK(), BLANK(),
+       IF([Lead Post Retail Partner Order (YoY%)] <= 0, RedCircle &" "& FORMAT([Lead Post Retail Partner Order (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Lead Post Retail Partner Order (YoY%)] > 0, GreenCircle &" "& FORMAT([Lead Post Retail Partner Order (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Lead Submitted After Order Text Colour ----
+Lead Submitted After Order Text Colour :=
+IF([Lead Post Retail Partner Order] - [Lead Post Retail Partner Order LY] > 0, "#38803A", "#B73A3A")
+
+// ---- Lead Submitted Before Purchase Text Colour ----
+Lead Submitted Before Purchase Text Colour :=
+IF([Lead Before Retail Partner Order] - [Lead Before Retail Partner Order LY] > 0, "#38803A", "#B73A3A")
+
+// ---- Lead to Online Enabled Sales (OES) (YoY%) CF ----
+Lead to Online Enabled Sales (OES) (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Lead to Online Enabled Sales (OES) (YoY%)] = BLANK(), BLANK(),
+       IF([Lead to Online Enabled Sales (OES) (YoY%)] <= 0, RedCircle &" "& FORMAT([Lead to Online Enabled Sales (OES) (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Lead to Online Enabled Sales (OES) (YoY%)] > 0, GreenCircle &" "& FORMAT([Lead to Online Enabled Sales (OES) (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Lead to Online Retail Sales (ORS) (YoY%) CF ----
+Lead to Online Retail Sales (ORS) (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Lead to Online Retail Sales (ORS) (YoY%)] = BLANK(), BLANK(),
+       IF([Lead to Online Retail Sales (ORS) (YoY%)] <= 0, RedCircle &" "& FORMAT([Lead to Online Retail Sales (ORS) (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Lead to Online Retail Sales (ORS) (YoY%)] > 0, GreenCircle &" "& FORMAT([Lead to Online Retail Sales (ORS) (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Leads (YoY%) CF ----
+Leads (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Leads (YoY%)] = BLANK(), BLANK(),
+       IF([Leads (YoY%)] <= 0, RedCircle &" "& FORMAT([Leads (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Leads (YoY%)] > 0, GreenCircle &" "& FORMAT([Leads (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Brand B AVG Order Value (YoY%) CF ----
+Brand B AVG Order Value (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Brand B AVG Order Value (YoY%)] = BLANK(), BLANK(),
+       IF([Brand B AVG Order Value (YoY%)] <= 0, RedCircle &" "& FORMAT([Brand B AVG Order Value (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Brand B AVG Order Value (YoY%)] > 0, GreenCircle &" "& FORMAT([Brand B AVG Order Value (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Brand B AVG Sales Value (YoY%) CF ----
+Brand B AVG Sales Value (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Brand B AVG Sales Value (YoY%)] = BLANK(), BLANK(),
+       IF([Brand B AVG Sales Value (YoY%)] <= 0, RedCircle &" "& FORMAT([Brand B AVG Sales Value (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Brand B AVG Sales Value (YoY%)] > 0, GreenCircle &" "& FORMAT([Brand B AVG Sales Value (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Online Enabled Sales (YoY%) CF ----
+Online Enabled Sales (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Online Enabled Sales (YoY%)] = BLANK(), BLANK(),
+       IF([Online Enabled Sales (YoY%)] <= 0, RedCircle &" "& FORMAT([Online Enabled Sales (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Online Enabled Sales (YoY%)] > 0, GreenCircle &" "& FORMAT([Online Enabled Sales (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Online Enabled Sales Text Colour ----
+Online Enabled Sales Text Colour :=
+IF(
+                       [Online Enabled Sales (OES)] - [Online Enabled Sales LY] > 0, "#38803A",
+                       "#B73A3A"
+                   )
+
+// ---- Online Retail Sales (YoY%) CF ----
+Online Retail Sales (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Online Retail Sales (ORS) YoY%] = BLANK(), BLANK(),
+       IF([Online Retail Sales (ORS) YoY%] <= 0, RedCircle &" "& FORMAT([Online Retail Sales (ORS) YoY%],"0.0%"),        //Modify VAR to preference
+           IF([Online Retail Sales (ORS) YoY%] > 0, GreenCircle &" "& FORMAT([Online Retail Sales (ORS) YoY%],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Online Retail Sales Text Colour ----
+Online Retail Sales Text Colour :=
+IF(
+                       [Online Retail Sales (ORS)] - [Online Retail Sales (ORS) LY] > 0, "#38803A",
+                       "#B73A3A"
+                   )
+
+// ---- Order Value (YoY%) CF ----
+Order Value (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Order Value (YoY%)] = BLANK(), BLANK(),
+       IF([Order Value (YoY%)] <= 0, RedCircle &" "& FORMAT([Order Value (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Order Value (YoY%)] > 0, GreenCircle &" "& FORMAT([Order Value (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Retail Partner users with No Online Order (YoY%) CF ----
+Retail Partner users with No Online Order (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Retail Partner users with No Online Orders (YoY%)] = BLANK(), BLANK(),
+       IF([Retail Partner users with No Online Orders (YoY%)] <= 0, RedCircle &" "& FORMAT([Retail Partner users with No Online Orders (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Retail Partner users with No Online Orders (YoY%)] > 0, GreenCircle &" "& FORMAT([Retail Partner users with No Online Orders (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Retail Partner users with Online Order (YoY%) CF ----
+Retail Partner users with Online Order (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Retail Partner users with Online Order (YoY%)] = BLANK(), BLANK(),
+       IF([Retail Partner users with Online Order (YoY%)] <= 0, RedCircle &" "& FORMAT([Retail Partner users with Online Order (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Retail Partner users with Online Order (YoY%)] > 0, GreenCircle &" "& FORMAT([Retail Partner users with Online Order (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Sales Value (YoY%) CF ----
+Sales Value (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Sales Value (YoY%)] = BLANK(), BLANK(),
+       IF([Sales Value (YoY%)] <= 0, RedCircle &" "& FORMAT([Sales Value (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Sales Value (YoY%)] > 0, GreenCircle &" "& FORMAT([Sales Value (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Total Orders (YoY%) CF ----
+Total Orders (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Total Orders (YoY%)] = BLANK(), BLANK(),
+       IF([Total Orders (YoY%)] <= 0, RedCircle &" "& FORMAT([Total Orders (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Total Orders (YoY%)] > 0, GreenCircle &" "& FORMAT([Total Orders (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Total Purchases (YoY%) CF ----
+Total Purchases (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Total Purchases (YoY%)] = BLANK(), BLANK(),
+       IF([Total Purchases (YoY%)] <= 0, RedCircle &" "& FORMAT([Total Purchases (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Total Purchases (YoY%)] > 0, GreenCircle &" "& FORMAT([Total Purchases (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Total Purchases Text Colour ----
+Total Purchases Text Colour :=
+IF([Total Purchases (ORS & OES)] - [Total Purchases LY] > 0, "#38803A", "#B73A3A")
+
+// ---- Total Retail Partner Customers (YoY%) CF ----
+Total Retail Partner Customers (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Total Retail Partner Customers (YoY%)] = BLANK(), BLANK(),
+       IF([Total Retail Partner Customers (YoY%)] <= 0, RedCircle &" "& FORMAT([Total Retail Partner Customers (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Total Retail Partner Customers (YoY%)] > 0, GreenCircle &" "& FORMAT([Total Retail Partner Customers (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Brand A AVG Order Value (YoY%) CF ----
+Brand A AVG Order Value (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Brand A AVG Order Value (YoY%)] = BLANK(), BLANK(),
+       IF([Brand A AVG Order Value (YoY%)] <= 0, RedCircle &" "& FORMAT([Brand A AVG Order Value (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Brand A AVG Order Value (YoY%)] > 0, GreenCircle &" "& FORMAT([Brand A AVG Order Value (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+// ---- Brand A AVG Sales Value (YoY%) CF ----
+Brand A AVG Sales Value (YoY%) CF :=
+VAR GreenCircle = UNICHAR(128994) // UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - GreenCirle
+VAR RedCircle = UNICHAR(128992) // / UNICHAR Codes from https://www.vertex42.com/ExcelTips/unicode-symbols.html - RedCirle
+RETURN
+   IF([Brand A AVG Sales Value (YoY%)] = BLANK(), BLANK(),
+       IF([Brand A AVG Sales Value (YoY%)] <= 0, RedCircle &" "& FORMAT([Brand A AVG Sales Value (YoY%)],"0.0%"),        //Modify VAR to preference
+           IF([Brand A AVG Sales Value (YoY%)] > 0, GreenCircle &" "& FORMAT([Brand A AVG Sales Value (YoY%)],"0.0%"),   //Modify VAR to preference
+               BLANK()
+           )
+       )
+   )
+
+
+//==============================================================================
+// SUBTITLE / DISPLAY TEXT HELPERS
+//==============================================================================
+
+// ---- AVG Days Lead to Order (Text) ----
+AVG Days Lead to Order (Text) :=
+Format([Avg Days Lead to Order], "#,###")
+
+// ---- AVG Days Leads to Order (Subtitle Text) ----
+AVG Days Leads to Order (Subtitle Text) :=
+FORMAT([Avg Days Lead to Order (YoY%)], "+0.0%;-0.0%;0.0%")
+                               & " vs. LY ("
+                               & FORMAT([Avg Days Lead to Order LY], "#,###")
+                               & ")"
+
+// ---- AVG Days Order to Purchase (Subtitle Text) ----
+AVG Days Order to Purchase (Subtitle Text) :=
+FORMAT([Avg Days Order to Purchase (YoY%)], "+0.0%;-0.0%;0.0%")
+                               & " vs. LY ("
+                               & FORMAT([Avg Days Order to Purchase LY], "#,###")
+                               & ")"
+
+// ---- AVG Days Order to Purchase (Text) ----
+AVG Days Order to Purchase (Text) :=
+Format([Avg Days Order to Purchase], "#,###")
+
+// ---- AVG Difference vs Sales Value (Subtitle Text) ----
+AVG Difference vs Sales Value (Subtitle Text) :=
+FORMAT([Avg (Weighted) Difference Order & Sales Value (YoY%)], "+0.0%;-0.0%;0.0%")
+                               & " vs. LY ("
+                               & "£"
+                               & FORMAT([Avg (Weighted) Difference Order & Sales Value LY], "#,###")
+                               & ")"
+
+// ---- AVG Difference vs Sales Value (Text) ----
+AVG Difference vs Sales Value (Text) :=
+"£" & Format([Avg (Weighted) Difference Order & Sales Value], "#,###")
+
+// ---- Lead After Account Creation (Subtitle Text) ----
+Lead After Account Creation (Subtitle Text) :=
+FORMAT([Lead Post Retail Partner Account Creation (YoY%)], "+0.0%;-0.0%;0.0%")
+                               & " vs. LY ("
+                               & FORMAT([Lead Post Retail Partner Account Creation LY], "#,###")
+                               & ")"
+
+// ---- Lead After Account Creation (Text) ----
+Lead After Account Creation (Text) :=
+Format([Lead Post Retail Partner Account Creation], "#,###")
+
+// ---- Lead Before Account Creation (Subtitle Text) ----
+Lead Before Account Creation (Subtitle Text) :=
+FORMAT([Lead Before Retail Partner Account Creation (YoY%)], "+0.0%;-0.0%;0.0%")
+                               & " vs. LY ("
+                               & FORMAT([Lead Before Retail Partner Account Creation LY], "#,###")
+                               & ")"
+
+// ---- Lead Before Account Creation (Text) ----
+Lead Before Account Creation (Text) :=
+Format([Lead Before Retail Partner Account Creation], "#,###")
+
+// ---- Lead Before Online Enabled Purchase (Text) ----
+Lead Before Online Enabled Purchase (Text) :=
+Format([Lead to Online Enabled Sales (OES)], "#,###")
+
+// ---- Lead Before Online Enabled Sale (Subtitle Text) ----
+Lead Before Online Enabled Sale (Subtitle Text) :=
+FORMAT([Lead to Online Enabled Sales (OES) (YoY%)], "+0.0%;-0.0%;0.0%")
+                               & " vs. LY ("
+                               & FORMAT([Lead to Online Enabled Sales (OES) LY], "#,###")
+                               & ")"
+
+// ---- Lead Before Online Retail (Subtitle Text) ----
+Lead Before Online Retail (Subtitle Text) :=
+FORMAT([Lead to Online Retail Sales (ORS) (YoY%)], "+0.0%;-0.0%;0.0%")
+                               & " vs. LY ("
+                               & FORMAT([Lead to Online Retail Sales (ORS) LY], "#,###")
+                               & ")"
+
+// ---- Lead Before Online Retail (Text) ----
+Lead Before Online Retail (Text) :=
+Format([Lead to Online Retail Sales (ORS)], "#,###")
+
+// ---- Lead Submitted After Order (Subtitle Text) ----
+Lead Submitted After Order (Subtitle Text) :=
+FORMAT([Lead Post Retail Partner Order (YoY%)], "+0.0%;-0.0%;0.0%")
+                               & " vs. LY ("
+                               & FORMAT([Lead Post Retail Partner Order LY], "#,###")
+                               & ")"
+
+// ---- Lead Submitted After Order (Text) ----
+Lead Submitted After Order (Text) :=
+Format([Lead Post Retail Partner Order], "#,###")
+
+// ---- Lead Submitted Before Purchase (Subtitle Text) ----
+Lead Submitted Before Purchase (Subtitle Text) :=
+FORMAT([Lead Before Retail Partner Order (YoY%)], "+0.0%;-0.0%;0.0%")
+                               & " vs. LY ("
+                               & FORMAT([Lead Before Retail Partner Order LY], "#,###")
+                               & ")"
+
+// ---- Lead Submitted Before Purchase (Text) ----
+Lead Submitted Before Purchase (Text) :=
+Format([Lead Before Retail Partner Order], "#,###")
+
+// ---- Online Enabled Sales (Subtitle Text) ----
+Online Enabled Sales (Subtitle Text) :=
+FORMAT([Online Enabled Sales (YoY%)], "+0.0%;-0.0%;0.0%")
+                               & " vs. LY ("
+                               & FORMAT([Online Enabled Sales LY], "#,###")
+                               & ")"
+
+// ---- Online Enabled Sales (Text) ----
+Online Enabled Sales (Text) :=
+Format([Online Enabled Sales (OES)], "#,###")
+
+// ---- Online Retail Sales (Subtitle Text) ----
+Online Retail Sales (Subtitle Text) :=
+FORMAT([Online Retail Sales (ORS) YoY%], "+0.0%;-0.0%;0.0%")
+                               & " vs. LY ("
+                               & FORMAT([Online Retail Sales (ORS) LY], "#,###")
+                               & ")"
+
+// ---- Online Retail Sales (Text) ----
+Online Retail Sales (Text) :=
+Format([Online Retail Sales (ORS)], "#,###")
+
+// ---- Total Purchases (Subtitle Text) ----
+Total Purchases (Subtitle Text) :=
+FORMAT([Total Purchases (YoY%)], "+0.0%;-0.0%;0.0%")
+                               & " vs. LY ("
+                               & FORMAT([Total Purchases LY], "#,###")
+                               & ")"
+
+// ---- Total Purchases (Text) ----
+Total Purchases (Text) :=
+Format([Total Purchases (ORS & OES)], "#,###")
+
+
+//==============================================================================
+// RETAIL PARTNER & BRAND-LEVEL SPLITS
+//==============================================================================
+
+// ---- Lead Before Retail Partner Account Creation ----
+Lead Before Retail Partner Account Creation :=
+CALCULATE(DISTINCTCOUNT(FCT_signupLead[EmailId]),FCT_signupLead[LeadBeforeAccountCreation]=1)
+
+// ---- Lead Before Retail Partner Account Creation (YoY%) ----
+Lead Before Retail Partner Account Creation (YoY%) :=
+VAR TY = [Lead Before Retail Partner Account Creation]
+VAR LY = [Lead Before Retail Partner Account Creation LY]
+VAR TYLY = TY - LY
+RETURN
+   DIVIDE ( TYLY, LY )
+
+// ---- Lead Before Retail Partner Account Creation LY ----
+Lead Before Retail Partner Account Creation LY :=
+CALCULATE ( [Lead Before Retail Partner Account Creation], DATEADD ( DIM_Masterdate[Date], -1, YEAR ) )
+
+// ---- Lead Before Retail Partner Order ----
+Lead Before Retail Partner Order :=
+CALCULATE(DISTINCTCOUNT(FCT_Transactions[EmailId]),FCT_Transactions[LeadBeforeOrderFlag]=1)
+
+// ---- Lead Before Retail Partner Order (YoY%) ----
+Lead Before Retail Partner Order (YoY%) :=
+VAR TY = [Lead Before Retail Partner Order]
+VAR LY = [Lead Before Retail Partner Order LY]
+VAR TYLY = TY - LY
+RETURN
+   DIVIDE ( TYLY, LY )
+
+// ---- Lead Before Retail Partner Order LY ----
+Lead Before Retail Partner Order LY :=
+CALCULATE ( [Lead Before Retail Partner Order], DATEADD ( DIM_Masterdate[Date], -1, YEAR ) )
+
+// ---- Lead Post Retail Partner Account Creation ----
+Lead Post Retail Partner Account Creation :=
+CALCULATE(DISTINCTCOUNT(FCT_signupLead[EmailId]),FCT_signupLead[LeadPostAccountCreation]=1)
+
+// ---- Lead Post Retail Partner Account Creation (YoY%) ----
+Lead Post Retail Partner Account Creation (YoY%) :=
+VAR TY = [Lead Post Retail Partner Account Creation]
+VAR LY = [Lead Post Retail Partner Account Creation LY]
+VAR TYLY = TY - LY
+RETURN
+   DIVIDE ( TYLY, LY )
+
+// ---- Lead Post Retail Partner Account Creation LY ----
+Lead Post Retail Partner Account Creation LY :=
+CALCULATE ( [Lead Post Retail Partner Account Creation], DATEADD ( DIM_Masterdate[Date], -1, YEAR ) )
+
+// ---- Lead Post Retail Partner Order ----
+Lead Post Retail Partner Order :=
+CALCULATE(DISTINCTCOUNT(FCT_Transactions[EmailId]),FCT_Transactions[LeadPostOrderFlag]=1)
+
+// ---- Lead Post Retail Partner Order (YoY%) ----
+Lead Post Retail Partner Order (YoY%) :=
+VAR TY = [Lead Post Retail Partner Order]
+VAR LY = [Lead Post Retail Partner Order LY]
+VAR TYLY = TY - LY
+RETURN
+   DIVIDE ( TYLY, LY )
+
+// ---- Lead Post Retail Partner Order LY ----
+Lead Post Retail Partner Order LY :=
+CALCULATE ( [Lead Post Retail Partner Order], DATEADD ( DIM_Masterdate[Date], -1, YEAR ) )
+
+// ---- Brand B AVG Order Value ----
+Brand B AVG Order Value :=
+CALCULATE(
+               [AVG Order Value],
+               DIM_Retailer[Brand Name] = "Brand B"
+           )
+
+// ---- Brand B AVG Order Value (YoY%) ----
+Brand B AVG Order Value (YoY%) :=
+VAR TY = [Brand B AVG Order Value]
+   VAR LY = [Brand B AVG Order Value LY]
+   VAR TYLY = TY-LY
+RETURN
+   DIVIDE(
+           TYLY,
+           LY
+       )
+
+// ---- Brand B AVG Order Value LY ----
+Brand B AVG Order Value LY :=
+CALCULATE(
+                       [Brand B AVG Order Value],
+                           DATEADD(
+                               DIM_Masterdate[Date],
+                               -1,
+                               YEAR
+                           )
+                       )
+
+// ---- Brand B AVG Sales Value (YoY%) ----
+Brand B AVG Sales Value (YoY%) :=
+VAR TY = [Brand B AVG Value]
+   VAR LY = [Brand B AVG Value LY]
+   VAR TYLY = TY-LY
+RETURN
+   DIVIDE(
+           TYLY,
+           LY
+       )
+
+// ---- Brand B AVG Value ----
+Brand B AVG Value :=
+CALCULATE(
+               [AVG Sales Value],
+               DIM_Retailer[Brand Name] = "Brand B"
+           )
+
+// ---- Brand B AVG Value LY ----
+Brand B AVG Value LY :=
+CALCULATE(
+                       [Brand B AVG Value],
+                           DATEADD(
+                               DIM_Masterdate[Date],
+                               -1,
+                               YEAR
+                           )
+                       )
+
+// ---- Brand B Order Value ----
+Brand B Order Value :=
+CALCULATE(
+               [Order Value],
+               DIM_Retailer[Brand Name] = "Brand B"
+           )
+
+// ---- Brand B Sales Value ----
+Brand B Sales Value :=
+CALCULATE(
+               [Sales Value],
+               DIM_Retailer[Brand Name] = "Brand B"
+           )
+
+// ---- Retail Partner Customers (Online Enabled Sales) LY ----
+Retail Partner Customers (Online Enabled Sales) LY :=
+CALCULATE(
+       [Online Enabled Sales (OES)],
+       DATEADD(DIM_Masterdate[Date],
+               -1,
+               YEAR))
+
+// ---- Retail Partner Customers (Online Enaled Sales) YoY% ----
+Retail Partner Customers (Online Enaled Sales) YoY% :=
+VAR TotOrdTY = [Online Enabled Sales (OES)]
+VAR TotOrdLY = [Retail Partner Customers (Online Enabled Sales) LY]
+VAR TYLY = TotOrdTY-TotOrdLY
+RETURN
+DIVIDE(TYLY,TotOrdLY)
+
+// ---- Retail Partner users with No Online Order ----
+Retail Partner users with No Online Order :=
+[Total Retail Partner Customers]-[Retail Partner users with Online Order]
+
+// ---- Retail Partner users with No Online Order LY ----
+Retail Partner users with No Online Order LY :=
+CALCULATE(
+       [Retail Partner users with No Online Order],
+       DATEADD(DIM_Masterdate[Date],
+               -1,
+               YEAR))
+
+// ---- Retail Partner users with No Online Orders (YoY%) ----
+Retail Partner users with No Online Orders (YoY%) :=
+VAR NoOnOrdTY = [Retail Partner users with No Online Order]
+VAR NoOnOrdLY = [Retail Partner users with No Online Order LY]
+VAR TYLY = NoOnOrdTY-NoOnOrdLY
+RETURN
+DIVIDE(TYLY,NoOnOrdLY)
+
+// ---- Retail Partner users with Online Order ----
+Retail Partner users with Online Order :=
+CALCULATE (
+   DISTINCTCOUNT( FCT_Transactions[EmailId] ),
+   FCT_Transactions[o_OrderDate] <> BLANK(),
+   USERELATIONSHIP(DIM_Masterdate[Date],FCT_Transactions[o_OrderDate])
+)
+
+// ---- Retail Partner users with Online Order (YoY%) ----
+Retail Partner users with Online Order (YoY%) :=
+VAR RocOnOrdTY = [Retail Partner users with Online Order]
+VAR RocOnOrdLY = [Retail Partner users with Online Order LY]
+VAR TYLY = RocOnOrdTY-RocOnOrdLY
+RETURN
+DIVIDE(TYLY,RocOnOrdLY)
+
+// ---- Retail Partner users with Online Order LY ----
+Retail Partner users with Online Order LY :=
+CALCULATE(
+       [Retail Partner users with Online Order],
+       DATEADD(DIM_Masterdate[Date],
+               -1,
+               YEAR))
+
+// ---- Total Retail Partner Customers ----
+Total Retail Partner Customers :=
+CALCULATE(
+   DISTINCTCOUNT(customer[EmailId]),
+   USERELATIONSHIP(customer[MinDateCreated],DIM_Masterdate[Date])
+)
+
+// ---- Total Retail Partner Customers (YoY%) ----
+Total Retail Partner Customers (YoY%) :=
+VAR TotRCTY = [Total Retail Partner Customers]
+VAR TotRCLY = [Total Retail Partner Customers LY]
+VAR TYLY = TotRCTY-TotRCLY
+RETURN
+DIVIDE(TYLY,TotRCLY)
+
+// ---- Total Retail Partner Customers LY ----
+Total Retail Partner Customers LY :=
+CALCULATE(
+       [Total Retail Partner Customers],
+       DATEADD(DIM_Masterdate[Date],
+               -1,
+               YEAR)
+           )
+
+// ---- Brand A AVG Order Value ----
+Brand A AVG Order Value :=
+CALCULATE(
+               [AVG Order Value],
+               DIM_Retailer[Brand Name] = "Brand A"
+           )
+
+// ---- Brand A AVG Order Value (YoY%) ----
+Brand A AVG Order Value (YoY%) :=
+VAR TY = [Brand A AVG Order Value]
+   VAR LY = [Brand A AVG Order Value LY]
+   VAR TYLY = TY-LY
+RETURN
+   DIVIDE(
+           TYLY,
+           LY
+       )
+
+// ---- Brand A AVG Order Value LY ----
+Brand A AVG Order Value LY :=
+CALCULATE(
+                           [Brand A AVG Order Value],
+                           DATEADD(DIM_Masterdate[Date],
+                                   -1,
+                                   YEAR
+                           )
+                   )
+
+// ---- Brand A AVG Sales Value (YoY%) ----
+Brand A AVG Sales Value (YoY%) :=
+VAR TY = [Brand A AVG Value]
+   VAR LY = [Brand A AVG Value LY]
+   VAR TYLY = TY-LY
+RETURN
+   DIVIDE(
+           TYLY,
+           LY
+       )
+
+// ---- Brand A AVG Value ----
+Brand A AVG Value :=
+CALCULATE(
+               [AVG Sales Value],
+               DIM_Retailer[Brand Name] = "Brand A"
+           )
+
+// ---- Brand A AVG Value LY ----
+Brand A AVG Value LY :=
+CALCULATE(
+                           [Brand A AVG Value],
+                           DATEADD(DIM_Masterdate[Date],
+                                   -1,
+                                   YEAR
+                           )
+                   )
+
+// ---- Brand A Order Value ----
+Brand A Order Value :=
+CALCULATE(
+               [Order Value],
+               DIM_Retailer[Brand Name] = "Brand A"
+           )
+
+// ---- Brand A Sales Value ----
+Brand A Sales Value :=
+CALCULATE(
+               [Sales Value],
+               DIM_Retailer[Brand Name] = "Brand A"
+           )
+
+
+//==============================================================================
+// CUSTOMER & LEAD METRICS
+//==============================================================================
+
+// ---- Avg Days Lead to Order ----
+Avg Days Lead to Order :=
+CALCULATE(
+                       AVERAGE(FCT_Transactions[LeadtoOrderDays]),
+                               FCT_Transactions[Order to Purchase Filter]
+                                                                           IN {
+                                                                               "Lead Enabled Order to Purchase",
+                                                                               "Lead Enabled Order to Purchase - Diff Car"
+                                                                               }
+                           )
+
+// ---- Avg Days Lead to Order (YoY%) ----
+Avg Days Lead to Order (YoY%) :=
+VAR TY = [Avg Days Lead to Order]
+VAR LY = [Avg Days Lead to Order LY]
+VAR TYLY = TY - LY
+RETURN
+   DIVIDE ( TYLY, LY )
+
+// ---- Avg Days Lead to Order LY ----
+Avg Days Lead to Order LY :=
+CALCULATE ( [Avg Days Lead to Order], DATEADD ( DIM_Masterdate[Date], -1, YEAR ) )
+
+// ---- Count of Customer Orders ----
+Count of Customer Orders :=
+CALCULATE(
+   [Total Orders],
+   TREATAS(VALUES(customer[Id]), 'order'[CustomerId]
+   )
+)
+
+// ---- Lead to Online Enabled Sales (OES) ----
+Lead to Online Enabled Sales (OES) :=
+CALCULATE (
+   COUNTROWS ( FCT_signupEnabledSales ),
+   FCT_signupEnabledSales[PurchaseActivity] = "lead enabled online sale"
+)
+
+// ---- Lead to Online Enabled Sales (OES) (YoY%) ----
+Lead to Online Enabled Sales (OES) (YoY%) :=
+VAR TY = [Lead to Online Enabled Sales (OES)]
+VAR LY = [Lead to Online Enabled Sales (OES) LY]
+VAR TYLY = TY - LY
+RETURN
+   DIVIDE ( TYLY, LY )
+
+// ---- Lead to Online Enabled Sales (OES) LY ----
+Lead to Online Enabled Sales (OES) LY :=
+CALCULATE ( [Lead to Online Enabled Sales (OES)], DATEADD ( DIM_Masterdate[Date], -1, YEAR ) )
+
+// ---- Lead to Online Retail Sales (ORS) ----
+Lead to Online Retail Sales (ORS) :=
+CALCULATE (
+   COUNTROWS ( FCT_Transactions ),
+   FCT_Transactions[Order to Purchase Filter] = "Lead Enabled Order to Purchase"
+)
+
+// ---- Lead to Online Retail Sales (ORS) (YoY%) ----
+Lead to Online Retail Sales (ORS) (YoY%) :=
+VAR TY = [Lead to Online Retail Sales (ORS)]
+VAR LY = [Lead to Online Retail Sales (ORS) LY]
+VAR TYLY = TY - LY
+RETURN
+   DIVIDE ( TYLY, LY )
+
+// ---- Lead to Online Retail Sales (ORS) LY ----
+Lead to Online Retail Sales (ORS) LY :=
+CALCULATE ( [Lead to Online Retail Sales (ORS)], DATEADD ( DIM_Masterdate[Date], -1, YEAR ) )
+
+// ---- Leads (YoY%) ----
+Leads (YoY%) :=
+VAR LeadsTY = [Lead Before Retail Partner Account Creation]
+VAR LeadsLY = [Leads LY]
+VAR TYLY = LeadsTY-LeadsLY
+RETURN
+DIVIDE(TYLY,LeadsLY)
+
+// ---- Leads LY ----
+Leads LY :=
+CALCULATE(
+       [Lead Before Retail Partner Account Creation],
+       DATEADD(DIM_Masterdate[Date],
+               -1,
+               YEAR))
+
+
+//==============================================================================
+// CALCULATION GROUP: TIME INTELLIGENCE
+//==============================================================================
+// Calculation items applying period-shift logic to whichever measure the report has
+// selected, via SELECTEDMEASURE(). Uses an inactive relationship on the date dimension
+// (DIM_Inactive_Masterdate), activated per item with USERELATIONSHIP.
+
+// ---- R6M ----
+R6M =
+VAR referenceDate = MAX(DIM_Masterdate[Date])
+
+VAR previousDates =
+    DATESINPERIOD(
+        DIM_Inactive_Masterdate[Date],
+        referenceDate,
+        -6,
+        MONTH
+    )
+
+RETURN
+CALCULATE(
+    CALCULATE(SELECTEDMEASURE(),
+        DATESINPERIOD (DIM_Masterdate[Date],
+        MAX(DIM_Masterdate[Date]),
+        -6,
+        MONTH)
+    ),
+    REMOVEFILTERS(DIM_Masterdate),
+    KEEPFILTERS(previousDates),
+    USERELATIONSHIP(
+                    DIM_Masterdate[Date],
+                    DIM_Inactive_Masterdate[Date]
+                )
+        )
+
+// ---- MTD ----
+MTD =
+VAR referenceDate =
+            MAX(DIM_Masterdate[Date])
+VAR previousDates =
+            DATESINPERIOD(DIM_Inactive_Masterdate[Date],
+                            referenceDate,
+                            -12,
+                            MONTH
+                           )
+VAR Result =
+            CALCULATE(
+                SELECTEDMEASURE(),
+                REMOVEFILTERS(DIM_Masterdate),
+                KEEPFILTERS(previousDates),
+                USERELATIONSHIP(DIM_Masterdate[Date],DIM_Inactive_Masterdate[Date])
+            )
+RETURN
+Result
+
+// ---- QTD ----
+QTD =
+VAR referenceDate = MAX(DIM_Masterdate[Date])
+
+VAR previousDates = DATESQTD(DIM_Masterdate[Date])
+
+RETURN
+CALCULATE(
+    CALCULATE( SELECTEDMEASURE(),
+        DATESQTD( DIM_Masterdate[Date] )
+),
+    REMOVEFILTERS(DIM_Masterdate),
+    KEEPFILTERS(previousDates),
+    USERELATIONSHIP(DIM_Masterdate[Date], DIM_Inactive_Masterdate[Date])
+    )
+
+// ---- YTD ----
+YTD =
+VAR referenceDate = MAX( DIM_Masterdate[Date] )
+
+VAR previousDates = DATESYTD(DIM_Masterdate[Date])
+
+RETURN
+CALCULATE(
+    CALCULATE(SELECTEDMEASURE(),
+            DATESYTD( DIM_Masterdate[Date] )
+),
+    REMOVEFILTERS(DIM_Masterdate),
+    KEEPFILTERS(previousDates),
+    USERELATIONSHIP(DIM_Masterdate[Date], DIM_Inactive_Masterdate[Date])
+    )
+
+// ---- Dynamic ----
+Dynamic =
+        CALCULATE(
+                CALCULATE(
+                    SELECTEDMEASURE(),
+                    USERELATIONSHIP(
+                                    DIM_Inactive_Masterdate[Date],
+                                    DIM_Masterdate[Date]
+                                    )
+                            ),
+                FILTER(
+                    ALLSELECTED(
+                                DIM_Masterdate[Date]),
+                    ISONORAFTER(
+                                DIM_Masterdate[Date],
+                                MAX(DIM_Inactive_Masterdate[Date]),
+                                DESC
+                                )
+                        )
+                    )
