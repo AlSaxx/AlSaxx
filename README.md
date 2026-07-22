@@ -7,6 +7,7 @@ This repo holds worked examples pulled from real production models and reports (
 ## What's here
 
 | Folder | Demonstrates |
+|---|---|
 | **DAX Examples** | Full DAX measure catalogues from two production semantic models — table functions, time intelligence, a Calculation Group (`SELECTEDMEASURE()`-driven R6M/MTD/QTD/YTD), `USERELATIONSHIP`-based multi-relationship handling, and a native DAX implementation of market-basket analysis (support / confidence / lift) |
 | **T-SQL Use Cases & Examples** | Staged temp-table pipelines, multi-year fact-table unions, geospatial catchment analysis (`STDistance` against geography types), and GDPR suppression logic embedded directly in customer-facing queries |
 | **M-Code Examples** | Power Query patterns — parameterised and rolling date tables, and native SQL query folding inside M |
