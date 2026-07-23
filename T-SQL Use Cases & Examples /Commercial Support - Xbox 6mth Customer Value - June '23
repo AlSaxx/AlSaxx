@@ -1,0 +1,273 @@
+use insight
+go
+
+if object_id ('tempdb..#XBSXHW') is not NULL
+	drop table #XBSXHW
+select
+	distinct emc.mergedcustomerid,
+	case when min(tc.transactiondate) < '2020-11-10' then '2020-11-10' else convert(date,min(tc.transactiondate)) end  'mTran',
+	case when s.title like '%series x%' then 'X' else 'S' end 'isSeries'
+into
+	#XBSXHW
+from
+	expanededmergedcustomerids emc (nolock)
+	inner join transactions tc (nolock) on emc.insightcustomerid = tc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	s.departmentid = 314
+	and s.subdepartmentid = 720
+	and s.marketplacevendorid = 0001
+	and ti.transactiontypeid = 1
+	and emc.mergedcustomerid not in (select mergedcustomerid from insighttemp..gk_customer_blacklist)
+	and emc.mergedcustomerid not in (select mergedcustomerid from insighttemp..gk_b2b_suppression)
+group by
+	emc.mergedcustomerid,
+	case when s.title like '%series x%' then 'X' else 'S' end
+
+
+if object_id ('tempdb..#SERX') is not NULL
+	drop table #SERX
+select
+	mergedcustomerid,
+	mTran,
+	'X' 'sCat'
+into
+	#SERX
+from
+	#XBSXHW
+where
+	isSeries = 'X'
+	and mergedcustomerid not in 
+	(
+		select
+			distinct mergedcustomerid
+		from
+			#XBSXHW
+		where
+			isSeries = 'S'
+	)
+		
+go
+
+
+if object_id ('tempdb..#SERS') is not NULL
+	drop table #SERS
+select
+	mergedcustomerid,
+	mTran,
+	'S' 'sCat'
+into
+	#SERS
+from
+	#XBSXHW
+where
+	isSeries = 'S'
+	and mergedcustomerid not in 
+	(
+		select
+			distinct mergedcustomerid
+		from
+			#XBSXHW
+		where
+			isSeries = 'X'
+	)
+go
+
+
+if object_id ('tempdb..#SERXAS') is not NULL
+	drop table #SERXAS
+select
+	distinct y.mergedcustomerid,
+	min(mTran) 'mTran',
+	'XS' 'sCat'
+into
+	#SERXAS
+from
+	(
+		select
+			distinct x.mergedcustomerid
+		from
+			(
+				select
+					distinct mergedcustomerid
+				from
+					#XBSXHW
+				where
+					isSeries = 'X'
+			)X
+		inner join
+			(
+				select
+					distinct mergedcustomerid
+				from
+					#XBSXHW
+				where
+					isSeries = 'S'
+			)S on X.mergedcustomerid = s.mergedcustomerid
+	)Y
+	left outer join #XBSXHW h on y.mergedcustomerid = h.mergedcustomerid
+group by
+	y.mergedcustomerid
+go
+
+
+if object_id ('tempdb..#ALLSERIESCUST') is not NULL
+	drop table #ALLSERIESCUST
+select
+	*
+into
+	#ALLSERIESCUST
+from
+	#SERX
+union all
+select
+	*
+from
+	#SERS
+union all
+select
+	*
+from
+	#SERXAS
+go
+
+
+if object_id ('tempdb..#CUSTSPEND1ST3RDPTY') is not NULL
+	drop table #CUSTSPEND1ST3RDPTY
+select
+	distinct x.mergedcustomerid,
+	x.sCat,
+	x.mTran,
+	datepart(year,x.mTran) 'mCalYr',
+	datepart(month,x.mTran) 'mCalMth',
+	datename(month,x.mTran) 'mCalMthName',
+	sum(ti.totalPrice) 'spend6MthsTot',
+	sum(case when s.productsubclassid = 1 then ti.totalPrice end) 'spend6MthsSW',
+	sum(case when s.productsubclassid = 3 then ti.totalPrice end) 'spend6MthsAcc',
+	sum(case when s.productclassid = 5 or s.productsubclassid in (8,19) then ti.totalPrice end) 'spend6MthsDig'
+into
+	#CUSTSPEND1ST3RDPTY
+from
+	#ALLSERIESCUST x
+	inner join expanededmergedcustomerids emc (nolock) on x.mergedcustomerid = emc.mergedcustomerid
+	inner join transactions tc (nolock) on emc.insightcustomerid = tc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	tc.transactiondate >= x.mTran
+	and tc.transactiondate < dateadd(month,12,mTran)
+	and s.productsubclassid != 2
+	and (
+		s.platformid in (191,288)
+		or s.departmentid in (449,649,499,699)
+		or (s.productclassid = 5 and s.subdepartmentid in (10,153) and s.platformid in (191,288,144,162) )
+		)
+	and s.marketplacevendorid = 0001
+group by
+	x.mergedcustomerid,
+	x.sCat,
+	x.mTran,
+	datepart(year,x.mTran),
+	datepart(month,x.mTran),
+	datename(month,x.mTran)
+go
+
+
+
+select
+	*
+from
+	(
+		select
+			distinct sCat,
+			mCalYr,
+			mCalMth,
+			mcalMthName,
+			sum(spend6MthsTot) / count(distinct mergedcustomerid) '6mthVal'
+		from	
+			#CUSTSPEND1ST3RDPTY
+		group by
+			sCat,
+			mCalYr,
+			mCalMth,
+			mcalMthName
+	)X
+PIVOT (sum([6mthVal]) for [sCat] in ([X],[S],[XS])) as PVT
+order by
+	mCalYr,
+	mCalMth
+
+
+
+--select
+--	*
+--from
+--	(
+--		select
+--			distinct sCat,
+--			mCalYr,
+--			mCalMth,
+--			mcalMthName,
+--			sum(spend6MthsSW) / count(distinct mergedcustomerid) '6mthVal'
+--		from	
+--			#CUSTSPEND1ST3RDPTY
+--		group by
+--			sCat,
+--			mCalYr,
+--			mCalMth,
+--			mcalMthName
+--	)X
+--PIVOT (sum([6mthVal]) for [sCat] in ([X],[S],[XS])) as PVT
+--order by
+--	mCalYr,
+--	mCalMth
+
+
+--select
+--	*
+--from
+--	(
+--		select
+--			distinct sCat,
+--			mCalYr,
+--			mCalMth,
+--			mcalMthName,
+--			sum(spend6MthsAcc) / count(distinct mergedcustomerid) '6mthVal'
+--		from	
+--			#CUSTSPEND1ST3RDPTY
+--		group by
+--			sCat,
+--			mCalYr,
+--			mCalMth,
+--			mcalMthName
+--	)X
+--PIVOT (sum([6mthVal]) for [sCat] in ([X],[S],[XS])) as PVT
+--order by
+--	mCalYr,
+--	mCalMth
+
+
+--select
+--	*
+--from
+--	(
+--		select
+--			distinct sCat,
+--			mCalYr,
+--			mCalMth,
+--			mcalMthName,
+--			sum(spend6MthsDig) / count(distinct mergedcustomerid) '6mthVal'
+--		from	
+--			#CUSTSPEND1ST3RDPTY
+--		group by
+--			sCat,
+--			mCalYr,
+--			mCalMth,
+--			mcalMthName
+--	)X
+--PIVOT (sum([6mthVal]) for [sCat] in ([X],[S],[XS])) as PVT
+--order by
+--	mCalYr,
+--	mCalMth
+
