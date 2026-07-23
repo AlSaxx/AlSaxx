@@ -1,0 +1,87 @@
+USE GAME_ARC
+GO
+
+-------------------------------------------------------------------------------------------------------
+----------------------------------------------TEMP TABLES----------------------------------------------
+-------------------------------------------------------------------------------------------------------
+
+IF OBJECT_ID ('tempdb..#SKU') IS NOT NULL
+    DROP TABLE #SKU
+
+SELECT  SOURCE_PRODUCT_CODE, PRODUCT_KEY													-- TEMP TABLE 1. Analysis SKU - GOW:R Fixed Pack Hardware
+    INTO #SKU
+        FROM DIM_PRODUCT
+        WHERE SOURCE_PRODUCT_CODE = '825298'
+    GO
+
+IF OBJECT_ID ('tempdb..#BSKT') IS NOT NULL													-- TEMP TABLE 3. Basket Count containing SKU's from TEMP TABLE 2.
+	DROP TABLE #BSKT
+
+SELECT DISTINCT FCT.INVOICE_NO, FCT.STORE_CODE, FCT.SALE_INVC_TYPE
+	INTO #BSKT
+		FROM FCT_SALES_LINES FCT (NOLOCK)
+			INNER JOIN #SKU AS S (NOLOCK) ON S.PRODUCT_KEY = FCT.PRODUCT_KEY
+			INNER JOIN DIM_DATE D (NOLOCK) ON D.DATE_KEY = FCT.DATE_KEY
+		WHERE D.DATE_FLD >= '2023-02-02' AND D.DATE_FLD < '2023-03-16'						-- Campaign Period
+			AND STORE_CODE NOT IN ('UK - 887', 'UK - 889')
+GO
+
+IF OBJECT_ID ('tempdb..#ATTBSKT') IS NOT NULL																			-- TEMP TABLE 4. Attach Baskets (containing baskets from TEMP TABLE 3 with items > 1).
+    DROP TABLE #ATTBSKT
+
+SELECT DISTINCT INVOICE_NO
+	INTO #ATTBSKT
+	FROM
+(    
+	SELECT DISTINCT B.INVOICE_NO, SUM(SALE_TOT_QTY) AS 'qty'
+		FROM #BSKT AS B
+			INNER JOIN FCT_SALES_LINES AS F (NOLOCK) ON B.INVOICE_NO = F.INVOICE_NO
+			INNER JOIN DIM_PRODUCT AS P (NOLOCK) ON P.PRODUCT_KEY = F.PRODUCT_KEY
+		WHERE F.SALE_INVC_TYPE IN ('REG-INV','DISC-SALE')
+			AND CLASS_CODE <> 'H'
+			AND P.MERCHANDISE_FLG = 'YES'
+			AND P.SUBCLASS_CODE IN ('PS4', 'PS5')
+			AND P.SOURCE_PRODUCT_CODE NOT IN ('123512','243027','692356','737686')
+			AND MANUFACTURE_CODE = '400079'
+		GROUP BY
+			B.INVOICE_NO
+) AS A
+GO
+
+------------------------------------------------------------------------------------------------------
+---------------------------------------------DATA PULLS-----------------------------------------------
+------------------------------------------------------------------------------------------------------
+
+SELECT COUNT(DISTINCT B.INVOICE_NO) AS 'StoreBaskets'																	-- Store Basket Count
+    FROM #BSKT AS B
+	WHERE B.SALE_INVC_TYPE IN ('REG-INV','DISC-SALE')
+GO
+
+SELECT COUNT(DISTINCT AB.INVOICE_NO) AS 'StoreAttachBasket'																-- Store Attach Basket Count & UnitSales
+	FROM #ATTBSKT AS AB
+		INNER JOIN FCT_SALES_LINES AS F (NOLOCK) ON AB.INVOICE_NO = F.INVOICE_NO
+		INNER JOIN DIM_PRODUCT AS P (NOLOCK) ON P.PRODUCT_KEY = F.PRODUCT_KEY
+		INNER JOIN DIM_STORE AS S (NOLOCK) ON S.STORE_CODE = F.STORE_CODE
+	WHERE SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+		AND P.MERCHANDISE_FLG = 'YES'
+		AND P.SUBCLASS_CODE IN ('PS4', 'PS5')
+		AND MANUFACTURE_CODE = 400079
+		AND F.STORE_CODE NOT IN ('UK - 887','UK - 889') 
+GO
+
+SELECT P.PRODUCT_CODE, P.PRODUCT_DESCRIPTION, COUNT(DISTINCT AB.INVOICE_NO) AS 'StoreBaskets'					-- Store Top 10 Attach SKU's
+    FROM #ATTBSKT AS AB
+        INNER JOIN FCT_SALES_LINES AS F (NOLOCK) ON AB.INVOICE_NO = F.INVOICE_NO
+        INNER JOIN DIM_PRODUCT AS P (NOLOCK) ON P.PRODUCT_KEY = F.PRODUCT_KEY
+    WHERE SALE_INVC_TYPE <> 'TRADE-IN'
+		AND CLASS_CODE <> 'H'
+        AND P.MERCHANDISE_FLG = 'YES'
+        AND P.SUBCLASS_CODE IN ('PS4', 'PS5')
+		AND MANUFACTURE_CODE = 400079
+		AND F.STORE_CODE NOT IN ('UK - 887','UK - 889')
+    GROUP BY
+        P.PRODUCT_CODE,
+        P.PRODUCT_DESCRIPTION
+    ORDER BY
+        COUNT(DISTINCT AB.INVOICE_NO) DESC
+GO
