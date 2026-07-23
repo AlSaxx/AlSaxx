@@ -1,0 +1,48 @@
+USE GAME_ARC
+GO
+
+------------------------------------------------------------------------------------------
+-----------------------------------------TEMP TABLE---------------------------------------
+------------------------------------------------------------------------------------------
+
+IF OBJECT_ID ('tempdb..#SKU') IS NOT NULL
+	DROP TABLE #SKU
+
+SELECT *
+	INTO #SKU
+	FROM DIM_PRODUCT AS P (NOLOCK)
+	WHERE P.SOURCE_PRODUCT_CODE IN ('832901','832902','832903')									-- PS5 STANDARD Spiderman 2: Mint, pre-order & store deposits
+	GO
+
+------------------------------------------------------------------------------------------
+----------------------------------DATA PULL-----------------------------------------------
+------------------------------------------------------------------------------------------
+
+SELECT tDate, [Online], [Store]																	-- PREORDER UNIT SALES BY DAY
+	FROM (
+	SELECT CAST(D.DATE_FLD AS date) AS 'tDate', SUM(FCT.SALE_TOT_QTY) AS 'UnitSales',
+		CASE WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+			ELSE 'Store' END AS Channel 
+			FROM FCT_SALES_LINES AS FCT (NOLOCK)
+				INNER JOIN #SKU AS P (NOLOCK) ON P.PRODUCT_KEY = FCT.PRODUCT_KEY
+				INNER JOIN DIM_DATE AS D (NOLOCK) ON D.DATE_KEY = FCT.DATE_KEY
+			WHERE D.DATE_FLD >= '2022-06-16' --AND D.DATE_FLD < '2022-11-09'
+				AND FCT.RETURN_REASON_KEY <> 25
+			GROUP BY
+				CAST(D.DATE_FLD AS date),
+				CASE WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+					ELSE 'Store' END
+) A
+PIVOT
+(
+	SUM(UnitSales)
+	FOR Channel IN (
+		[Online],
+		[Store]) 
+) AS PIVOT_TABLE_UNITS
+	ORDER BY
+		tDate
+
+--SELECT * FROM DIM_RETURN_REASON
+--WHERE RETURN_REASON_KEY = 25
+--GO
