@@ -1,5 +1,5 @@
 let
-    Source = AzureStorage.DataLake("https://companyedpprdneusa01.dfs.core.windows.net/databricks/prod/curated/powerbisources/consumerone/omnichannel/rockar/basket_orders"),
+    Source = AzureStorage.DataLake("https://companyedpprdneusa01.dfs.core.windows.net/databricks/prod/curated/powerbisources/consumerone/omnichannel/retailpartner/basket_orders"),
     #"Filtered Rows" = Table.SelectRows(Source, each ([Extension] = ".parquet")),
     #"Filtered Hidden Files1" = Table.SelectRows(#"Filtered Rows", each [Attributes]?[Hidden]? <> true),
     #"Invoke Custom Function1" = Table.AddColumn(#"Filtered Hidden Files1", "Transform File (14)", each #"Transform File (14)"([Content])),
