@@ -1,0 +1,61 @@
+USE Insight
+GO
+
+IF OBJECT_ID ('tempdb..#SCH') IS NOT NULL
+	DROP TABLE #SCH
+
+SELECT *
+	INTO #SCH
+	FROM sku (NOLOCK)
+	WHERE sku IN ('808605','832332', '832336', '832340', '833747', '808606', '832333', '832337', '832341', '833748', '808607','832334', '832338', '832342', '833749')	-- Starfield SKUs 			
+GO
+
+--SELECT * FROM #SCH
+
+------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------
+
+SELECT	tDate,
+		COALESCE(XB_Constellation_Ed,0) AS 'XB_Constellation_Ed',
+		COALESCE(SF_PREM_UPGRD,0) AS 'SF_PREM_UPGRD',
+		COALESCE(PC_Constellation_Ed,0) AS 'PC_Constellation_Ed',
+		COALESCE(XB_STD_Ed,0) AS 'XB_STD_Ed',
+		COALESCE(PC_STD_Ed,0) AS 'PC_STD_Ed'
+FROM
+(
+SELECT CAST(T.transactionDate AS date) AS 'tDate',
+		CASE
+			WHEN S.sku in ('832332', '832333', '832334') THEN 'XB_Constellation_Ed' 
+			WHEN S.sku in ('832336', '832337', '832338') THEN 'SF_PREM_UPGRD' 
+			WHEN S.sku in ('832340', '832341', '832342') THEN 'PC_Constellation_Ed'
+			WHEN S.sku in ('808605', '808606', '808607') THEN 'XB_STD_Ed'
+			WHEN S.sku in ('833747', '833748', '833749') THEN 'PC_STD_Ed'
+		END AS 'SF_SKU',
+		ISNULL(SUM(CASE WHEN transactionTypeId = 4 THEN quantity*-1 ELSE quantity END), 0) AS 'Unit_Sales'
+			FROM Transactions AS T (NOLOCK)
+				INNER JOIN ExpanededMergedCustomerIds AS EMC (NOLOCK) ON EMC.insightCustomerId = T.InsightCustomerId
+				INNER JOIN TransactionItem AS TI (NOLOCK) ON T.Id = TI.transactionId
+				INNER JOIN #SCH AS S ON s.sku = TI.sku
+			WHERE TI.transactionTypeId IN (1, 2, 4)
+				AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_CUSTOMER_BLACKLIST)
+				AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_B2B_suppression)
+				AND T.storeNumber NOT IN (0, 999, 9999)															-- Doesn't make any difference in this case but get used to putting these restrictions in to account for HO & Online vol&val over inflation
+				AND T.transactionDate >= '2023-06-12' AND T.transactionDate < '2023-09-07'
+			GROUP BY
+				CAST(T.transactionDate AS date),
+				CASE
+					WHEN S.sku in ('832332', '832333', '832334') THEN 'XB_Constellation_Ed' 
+					WHEN S.sku in ('832336', '832337', '832338') THEN 'SF_PREM_UPGRD' 
+					WHEN S.sku in ('832340', '832341', '832342') THEN 'PC_Constellation_Ed'
+					WHEN S.sku in ('808605', '808606', '808607') THEN 'XB_STD_Ed'
+					WHEN S.sku in ('833747', '833748', '833749') THEN 'PC_STD_Ed'
+				END
+)AS X
+PIVOT
+(
+	SUM(Unit_Sales)
+	FOR SF_SKU IN ([XB_Constellation_Ed],[SF_PREM_UPGRD],[PC_Constellation_Ed],[XB_STD_Ed], [PC_STD_Ed])
+) AS PVT
+ORDER BY
+	tDate
+GO
