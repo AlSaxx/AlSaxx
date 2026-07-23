@@ -1,0 +1,6 @@
+let
+    Source = base_signupEnabledSales,
+    #"Merged Queries" = Table.NestedJoin(Source, {"dmsSyntheticKey"}, LeadBeforePurchase, {"dmsSyntheticKey"}, "LeadBeforePurchase", JoinKind.LeftOuter),
+    #"Expanded LeadBeforePurchase" = Table.ExpandTableColumn(#"Merged Queries", "LeadBeforePurchase", {"MaxLeadDate", "LeadBeforePurchase", "CountLeads"}, {"LeadBeforePurchase.MaxLeadDate", "LeadBeforePurchase.LeadBeforePurchase", "LeadBeforePurchase.CountLeads"})
+in
+    #"Expanded LeadBeforePurchase"
