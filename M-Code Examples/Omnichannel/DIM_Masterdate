@@ -1,0 +1,5 @@
+let
+    Source = Sql.Database("tgb-edp-prd-neu-sql-01.3e78cb92de5a.database.windows.net", "ConsumerOneCXDashboard", [Query="SELECT *#(lf)FROM T_Master_Date d (nolock)#(lf)WHERE d.Date >= DATEADD(yy, DATEDIFF(yy, 0, DATEADD(year,-3, GETDATE())), 0)#(lf)#(tab)AND d.date < GETDATE()#(lf)"]),
+    #"Changed Type" = Table.TransformColumnTypes(Source,{{"StartOfMonth", type date}, {"EndOfMonth", type date}, {"StartOfWeek", type date}, {"Date", type date}})
+in
+    #"Changed Type"
