@@ -1,0 +1,128 @@
+USE Insight
+GO
+
+IF OBJECT_ID ('tempdb..#SM2') IS NOT NULL
+	DROP TABLE #SM2
+
+SELECT DISTINCT EMC.mergedCustomerId
+	INTO #SM2
+	FROM Transactions T (NOLOCK)		
+		INNER JOIN ExpanededMergedCustomerIds EMC (NOLOCK)ON EMC.insightCustomerId = T.InsightCustomerId
+		INNER JOIN TransactionItem TI (NOLOCK) ON TI.transactionId = T.Id
+		INNER JOIN Sku S (NOLOCK) ON S.sku = TI.sku
+	WHERE T.transactionDate >= '2023-06-16' AND T.transactionDate < '2023-10-30'
+		AND S.sku in ('832901','832902','832903')
+		AND TI.transactionTypeId IN (1,2)																									-- Restrict to 1) Sale - 2) Preorder transaction types - 4) Refund 
+		AND T.storeNumber NOT IN (0,999,9999)																								-- Restrict store numbers 0, 999, 9999 - Customer Service & Head Office accounts (potential to inflate unit volumes) 
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_CUSTOMER_BLACKLIST)							-- Restrict customer Blacklist from Insighttemp
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_B2B_suppression)								-- Restrict B2B from Insighttemp
+GO
+
+IF OBJECT_ID ('tempdb..#SM2CONT') IS NOT NULL
+	DROP TABLE #SM2CONT
+																								
+SELECT DISTINCT EMC.mergedCustomerId
+	INTO #SM2CONT
+	FROM Transactions T (NOLOCK)		
+		INNER JOIN ExpanededMergedCustomerIds EMC (NOLOCK)ON EMC.insightCustomerId = T.InsightCustomerId
+		INNER JOIN TransactionItem TI (NOLOCK) ON TI.transactionId = T.Id
+		INNER JOIN Sku S (NOLOCK) ON S.sku = TI.sku
+	WHERE T.transactionDate >= '2023-06-16' AND T.transactionDate < '2023-10-30'
+		AND S.sku in ('834512','834513','834514')
+		AND TI.transactionTypeId IN (1,2)																									-- Restrict to 1) Sale - 2) Preorder transaction types - 4) Refund 
+		AND T.storeNumber NOT IN (0,999,9999)																								-- Restrict store numbers 0, 999, 9999 - Customer Service & Head Office accounts (potential to inflate unit volumes) 
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_CUSTOMER_BLACKLIST)							-- Restrict customer Blacklist from Insighttemp
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_B2B_suppression)								-- Restrict B2B from Insighttemp
+GO
+
+IF OBJECT_ID ('tempdb..#SM2DiCov') IS NOT NULL
+	DROP TABLE #SM2DiCov
+																								
+SELECT DISTINCT EMC.mergedCustomerId
+	INTO #SM2DiCov
+	FROM Transactions T (NOLOCK)		
+		INNER JOIN ExpanededMergedCustomerIds EMC (NOLOCK)ON EMC.insightCustomerId = T.InsightCustomerId
+		INNER JOIN TransactionItem TI (NOLOCK) ON TI.transactionId = T.Id
+		INNER JOIN Sku S (NOLOCK) ON S.sku = TI.sku
+	WHERE T.transactionDate >= '2023-06-16' AND T.transactionDate < '2023-10-30'
+		AND S.sku in ('834519','834520')
+		AND TI.transactionTypeId IN (1,2)																									-- Restrict to 1) Sale - 2) Preorder transaction types - 4) Refund 
+		AND T.storeNumber NOT IN (0,999,9999)																								-- Restrict store numbers 0, 999, 9999 - Customer Service & Head Office accounts (potential to inflate unit volumes) 
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_CUSTOMER_BLACKLIST)							-- Restrict customer Blacklist from Insighttemp
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_B2B_suppression)								-- Restrict B2B from Insighttemp
+GO
+
+
+IF OBJECT_ID ('tempdb..#SM2Cov') IS NOT NULL
+	DROP TABLE #SM2Cov
+																								
+SELECT DISTINCT EMC.mergedCustomerId
+	INTO #SM2Cov
+	FROM Transactions T (NOLOCK)		
+		INNER JOIN ExpanededMergedCustomerIds EMC (NOLOCK)ON EMC.insightCustomerId = T.InsightCustomerId
+		INNER JOIN TransactionItem TI (NOLOCK) ON TI.transactionId = T.Id
+		INNER JOIN Sku S (NOLOCK) ON S.sku = TI.sku
+	WHERE T.transactionDate >= '2023-06-16' AND T.transactionDate < '2023-10-30'
+		AND S.sku in ('834516','834517','834518')
+		AND TI.transactionTypeId IN (1,2)																									-- Restrict to 1) Sale - 2) Preorder transaction types - 4) Refund 
+		AND T.storeNumber NOT IN (0,999,9999)																								-- Restrict store numbers 0, 999, 9999 - Customer Service & Head Office accounts (potential to inflate unit volumes) 
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_CUSTOMER_BLACKLIST)							-- Restrict customer Blacklist from Insighttemp
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_B2B_suppression)								-- Restrict B2B from Insighttemp
+GO
+
+------------------------------------------
+------------------------------------------
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'SM2_Cust'
+	FROM #SM2
+GO
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'SM2_Cont_Cust'
+	FROM #SM2
+	WHERE mergedCustomerId IN (SELECT mergedCustomerId FROM #SM2CONT)
+GO
+
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'SM2_Cont_Cust'
+	FROM #SM2CONT
+GO
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'SM2_Cust'
+	FROM #SM2CONT
+	WHERE mergedCustomerId IN (SELECT mergedCustomerId FROM #SM2)
+GO
+
+--------------------------------------------
+--------------------------------------------
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'SM2_Cust'
+	FROM #SM2
+GO
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'SM2_Cov_Cust'
+	FROM #SM2Cov
+GO
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'SM2_Cov_XCust'
+	FROM #SM2
+	WHERE mergedCustomerId IN (SELECT mergedCustomerId FROM #SM2Cov)
+GO
+
+------------------------------------------------
+------------------------------------------------
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'SM2_Cust'
+	FROM #SM2
+GO
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'SM2_Cov_DiCust'
+	FROM #SM2DiCov
+GO
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'SM2_DiCov_XCust'
+	FROM #SM2
+	WHERE mergedCustomerId IN (SELECT mergedCustomerId FROM #SM2DiCov)
+GO
+
+------------------------------------------------
+------------------------------------------------
