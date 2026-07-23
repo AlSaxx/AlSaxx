@@ -1,0 +1,77 @@
+USE GAME_ARC
+GO
+
+--------------------------------------------------------------------------------------------
+--------------------------------------TEMP TABLES-------------------------------------------
+--------------------------------------------------------------------------------------------
+
+IF OBJECT_ID ('tempdb..#PS5HW') IS NOT NULL													-- All PS5 Hardware SKU's
+	DROP TABLE #PS5HW
+
+SELECT *
+	INTO #PS5HW
+	FROM DIM_PRODUCT AS P (NOLOCK)
+	--WHERE P.SOURCE_PRODUCT_CODE IN ('798801', '798805', '825298', '825565', '818795', '818799', '823231', '823229')
+	WHERE P.SOURCE_PRODUCT_CODE = '825298'													-- GOW:R Fixed Pack
+GO
+
+--SELECT * FROM #PS5HW 
+
+------------------------------------------------------------------------------------------
+------------------------------------DATA PULL---------------------------------------------
+------------------------------------------------------------------------------------------
+
+SELECT tDate, [Online], [Store]																-- UNIT SALES
+	FROM (
+	SELECT CAST(D.DATE_FLD AS date) AS 'tDate', SUM(FCT.SALE_TOT_QTY) AS 'UnitSales',
+		CASE WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+			ELSE 'Store' END AS 'Channel' 
+			FROM FCT_SALES_LINES AS FCT (NOLOCK)
+				INNER JOIN #PS5HW AS P (NOLOCK) ON P.PRODUCT_KEY = FCT.PRODUCT_KEY
+				INNER JOIN DIM_DATE AS D (NOLOCK) ON D.DATE_KEY = FCT.DATE_KEY
+			WHERE D.DATE_FLD >= '2023-01-01' AND D.DATE_FLD < '2023-03-16'
+				AND SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+				AND MERCHANDISE_FLG = 'YES'
+				AND LATEST = '1'
+			GROUP BY
+				CAST(D.DATE_FLD AS date),
+				CASE WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+					ELSE 'Store' END
+) AS A
+PIVOT
+(
+	SUM(UnitSales)
+	FOR Channel IN (
+		[Online],
+		[Store]) 
+) AS PIVOT_TABLE_UNITS
+	ORDER BY
+		tDate
+
+
+SELECT tDate, [Online], [Store]																-- GROSS VALUE SALES
+	FROM (
+	SELECT CAST(D.DATE_FLD AS date) AS 'tDate', SUM(FCT.SALE_NET_VAL + FCT.SALE_TOT_TAX_VAL) AS 'GrossValueSales',
+		CASE WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+			ELSE 'Store' END AS 'Channel' 
+			FROM FCT_SALES_LINES AS FCT (NOLOCK)
+				INNER JOIN #PS5HW AS P (NOLOCK) ON P.PRODUCT_KEY = FCT.PRODUCT_KEY
+				INNER JOIN DIM_DATE AS D (NOLOCK) ON D.DATE_KEY = FCT.DATE_KEY
+			WHERE D.DATE_FLD >= '2023-01-01' AND D.DATE_FLD < '2023-03-16'
+				AND SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+				AND MERCHANDISE_FLG = 'YES'
+				AND LATEST = '1'
+			GROUP BY
+				CAST(D.DATE_FLD AS date),
+				CASE WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+					ELSE 'Store' END
+) AS A
+PIVOT
+(
+	SUM(GrossValueSales)
+	FOR Channel IN (
+		[Online],
+		[Store]) 
+) AS PIVOT_TABLE_VALUE
+	ORDER BY
+		tDate
