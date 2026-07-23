@@ -1,0 +1,7 @@
+let
+    Source = Sql.Database("tgb-edp-prd-neu-sql-01.3e78cb92de5a.database.windows.net", "ConsumerOneCXDashboard", [Query="SELECT#(tab)r.CentreId,#(lf)#(tab)#(tab)r.Postcode,#(lf)#(tab)#(tab)r.[Brand Name],#(lf)#(tab)#(tab)r.[Group],#(lf)#(tab)#(tab)r.Centre,#(lf)#(tab)#(tab)r.OTSO,#(lf)#(tab)#(tab)r.[Status]#(lf)FROM cs_retailer_dim r (nolock)#(lf);"]),
+    #"Capitalized Each Word" = Table.TransformColumns(Source,{{"Brand Name", Text.Proper, type text}}),
+    #"Trimmed Text" = Table.TransformColumns(#"Capitalized Each Word",{{"Brand Name", Text.Trim, type text}, {"Group", Text.Trim, type text}, {"Centre", Text.Trim, type text}}),
+    #"Cleaned Text" = Table.TransformColumns(#"Trimmed Text",{{"Brand Name", Text.Clean, type text}, {"Group", Text.Clean, type text}, {"Centre", Text.Clean, type text}, {"OTSO", Text.Clean, type text}, {"Status", Text.Clean, type text}})
+in
+    #"Cleaned Text"
