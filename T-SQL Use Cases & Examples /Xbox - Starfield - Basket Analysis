@@ -1,0 +1,126 @@
+USE GAME_ARC
+GO
+
+----------------------------------------------PRODUCT TABLES-------------------------------------------
+-------------------------------------------------------------------------------------------------------
+
+IF OBJECT_ID ('tempdb..#SF') IS NOT NULL
+    DROP TABLE #SF
+
+SELECT *																														-- Analysis SKU's Starfield 
+    INTO #SF
+        FROM DIM_PRODUCT
+		WHERE SOURCE_PRODUCT_CODE IN ('808605','832332', '832336', '832340', '833747')
+GO
+
+--SELECT * FROM #SKU
+
+IF OBJECT_ID ('tempdb..#SX') IS NOT NULL
+    DROP TABLE #SX
+
+SELECT *																														-- Harware SKU's.  Series X.
+    INTO #SX
+        FROM DIM_PRODUCT
+		WHERE SOURCE_PRODUCT_CODE IN ('800821','811366', '826515', '830005')
+GO
+
+--SELECT * FROM #SX
+
+IF OBJECT_ID ('tempdb..#SS') IS NOT NULL
+	DROP TABLE #SS
+
+SELECT *
+	INTO #SS
+	FROM DIM_PRODUCT
+	WHERE SOURCE_PRODUCT_CODE IN ('800825','812830','825472','833252')
+GO
+
+--SELECT * FROM #SS
+
+----------------------------------------------BASKET TABLES--------------------------------------------
+-------------------------------------------------------------------------------------------------------
+
+IF OBJECT_ID ('tempdb..#XBSKT') IS NOT NULL																						-- Series X Baskets (All SKU's)
+    DROP TABLE #XBSKT
+
+SELECT DISTINCT F.INVOICE_NO
+    INTO #XBSKT
+        FROM FCT_SALES_LINES F (NOLOCK)
+            INNER JOIN #SX AS S ON S.PRODUCT_KEY = F.PRODUCT_KEY
+            INNER JOIN DIM_DATE D (NOLOCK) ON D.DATE_KEY = F.DATE_KEY
+        WHERE D.DATE_FLD >= '2023-09-06' AND D.DATE_FLD < '2023-09-24'
+			AND SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+GO
+
+IF OBJECT_ID ('tempdb..#SBSKT') IS NOT NULL																						-- Series S Baskets (All SKU's)
+    DROP TABLE #SBSKT
+
+SELECT DISTINCT F.INVOICE_NO
+    INTO #SBSKT
+        FROM FCT_SALES_LINES F (NOLOCK)
+            INNER JOIN #SS AS S ON S.PRODUCT_KEY = F.PRODUCT_KEY
+            INNER JOIN DIM_DATE D (NOLOCK) ON D.DATE_KEY = F.DATE_KEY
+        WHERE D.DATE_FLD >= '2023-09-06' AND D.DATE_FLD < '2023-09-24'
+			AND SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+GO
+
+----------------------------------------------DATA PULL & SF ATTACH------------------------------------
+-------------------------------------------------------------------------------------------------------
+
+SELECT COUNT(DISTINCT INVOICE_NO) AS 'X_BSKT'																					-- Series X Basket Count
+	FROM #XBSKT
+GO
+
+SELECT CAST(D.DATE_FLD as date) 'tDate', COUNT(DISTINCT F.INVOICE_NO) AS 'SeriesX_Baskets'										-- Series X Trended Basket Count
+    FROM FCT_SALES_LINES F (NOLOCK)
+		INNER JOIN #XBSKT XB ON XB.INVOICE_NO = F.INVOICE_NO
+		INNER JOIN DIM_DATE D (NOLOCK) ON D. DATE_KEY = F.DATE_KEY
+	WHERE SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+	GROUP BY
+		D.DATE_FLD
+	ORDER BY
+		tDate
+GO
+
+SELECT COUNT(DISTINCT F.INVOICE_NO) AS 'SF_X_AttBSKT'																			-- Series X Basket Count w/ Starfield
+	FROM FCT_SALES_LINES F (NOLOCK)
+		INNER JOIN #XBSKT XB ON XB.INVOICE_NO = F.INVOICE_NO
+		INNER JOIN #SF P ON P.PRODUCT_KEY = F.PRODUCT_KEY
+	WHERE SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+GO
+
+SELECT CAST(D.DATE_FLD as date) 'tDate', COUNT(DISTINCT F.INVOICE_NO) AS 'SF_X_AttBSKT'											-- Series X Trended Basket Count w/ Starfield
+	FROM FCT_SALES_LINES F (NOLOCK)
+		INNER JOIN #XBSKT XB ON XB.INVOICE_NO = F.INVOICE_NO
+		INNER JOIN #SF P ON P.PRODUCT_KEY = F.PRODUCT_KEY
+		INNER JOIN DIM_DATE D (NOLOCK) ON D.DATE_KEY = F.DATE_KEY
+	WHERE SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+	GROUP BY
+		D.DATE_FLD
+	ORDER BY
+		tDate
+GO
+
+SELECT P.SOURCE_PRODUCT_CODE, P.PRODUCT_DESCRIPTION, SUM(SALE_TOT_QTY) 'Units'													-- Series X Trended Basket Count w/ Starfield
+	FROM FCT_SALES_LINES F (NOLOCK)
+		INNER JOIN #XBSKT XB ON XB.INVOICE_NO = F.INVOICE_NO
+		INNER JOIN #SF P ON P.PRODUCT_KEY = F.PRODUCT_KEY
+		INNER JOIN DIM_DATE D (NOLOCK) ON D.DATE_KEY = F.DATE_KEY
+	WHERE SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+	GROUP BY
+		P.SOURCE_PRODUCT_CODE,
+		P.PRODUCT_DESCRIPTION
+	ORDER BY
+		Units DESC
+GO
+
+--SELECT COUNT(DISTINCT INVOICE_NO) AS 'SeriesS_Baskets'																		-- Series S Basket Count
+--    FROM #SBSKT
+--GO
+
+--SELECT COUNT(DISTINCT F.INVOICE_NO) AS 'SF_S_AttBSKT'																			-- Series S Basket Count w/ Starfield
+--	FROM FCT_SALES_LINES F (NOLOCK)
+--		INNER JOIN #SBSKT XB ON XB.INVOICE_NO = F.INVOICE_NO
+--		INNER JOIN #SF P ON P.PRODUCT_KEY = F.PRODUCT_KEY
+--	WHERE SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+--GO
