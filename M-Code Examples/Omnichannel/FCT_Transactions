@@ -1,0 +1,12 @@
+let
+    Source = base_Transactions,
+    #"Merged Queries" = Table.NestedJoin(Source, {"o_OrderEventId"}, basketToOrderJoinONLY, {"bo_OrderEventId"}, "basketToOrderJoinONLY", JoinKind.LeftOuter),
+    #"Expanded basketToOrderJoinONLY" = Table.ExpandTableColumn(#"Merged Queries", "basketToOrderJoinONLY", {"bo_LocalModelCode", "Basket to Order", "bo_OrderDate"}, {"basketToOrderJoinONLY.bo_LocalModelCode", "basketToOrderJoinONLY.Basket to Order", "basketToOrderJoinONLY.bo_OrderDate"}),
+    #"Merged Queries1" = Table.NestedJoin(#"Expanded basketToOrderJoinONLY", {"o_OrderEventId"}, LeadBeforeOrder, {"o_OrderEventId"}, "LeadBeforeOrder", JoinKind.LeftOuter),
+    #"Expanded LeadBeforeOrder" = Table.ExpandTableColumn(#"Merged Queries1", "LeadBeforeOrder", {"MaxLeadDate", "LeadBeforeOrder", "CountLeads"}, {"LeadBeforeOrder.MaxLeadDate", "LeadBeforeOrder.LeadBeforeOrder", "LeadBeforeOrder.CountLeads"}),
+    #"Changed Type1" = Table.TransformColumnTypes(#"Expanded LeadBeforeOrder",{{"o_OrderDate", type datetime}}),
+    #"Merged Queries2" = Table.NestedJoin(#"Changed Type1", {"o_OrderEventId"}, LeadPostOrder, {"o_OrderEventId"}, "LeadPostOrder", JoinKind.LeftOuter),
+    #"Expanded LeadPostOrder" = Table.ExpandTableColumn(#"Merged Queries2", "LeadPostOrder", {"MinLeadDate", "LeadPostOrder", "CountLeads"}, {"LeadPostOrder.MinLeadDate", "LeadPostOrder.LeadPostOrder", "LeadPostOrder.CountLeads"}),
+    #"Added Custom" = Table.AddColumn(#"Expanded LeadPostOrder", "dmsSyntheticKey", each Text.Start([EmailId],8)&[d_VIN]& Date.ToText([d_EventDate]))
+    in
+    #"Added Custom"
