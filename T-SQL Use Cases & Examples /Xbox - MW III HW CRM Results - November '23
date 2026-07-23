@@ -1,0 +1,246 @@
+use insight
+go
+
+if object_id ('tempdb..#WEEKLYEMAILSEND') is not NULL
+	drop table #WEEKLYEMAILSEND
+select
+	distinct rs.campaignID,
+	rls.campaignName,
+	rls.purpose,
+	rls.marketingStrategy,
+	rls.marketingProgram,
+	d.[date] 'sentDate',
+	d.weekid,
+	d.financialyearid,
+	rs.customerId,
+	rs.email
+into
+	#WEEKLYEMAILSEND
+from
+	responsysSent rs (nolock)
+	inner join dimDateFinance d (nolock) on rs.eventCapturedDate = d.[date]
+	inner join ResponsysLaunchState rls (nolock) on rs.launchID = rls.launchID
+where
+	rs.campaignid in (28786362,28786542,28786862,28797422)	
+	and rls.LaunchType = 'S'
+	and rls.LaunchStatus = 'C'
+	and rs.customerid != ''
+	and rs.customerid is not NULL
+	and rs.customerid not like 'X%'
+	and rs.customerid not like '%?%'
+	and rs.customerid not like 'cc%'
+	and rs.customerid not like '%PROOF%'
+	and rs.customerid <> '111111111111'
+	and rs.customerid != '000222'
+	and rs.customerid != 'TEST_001'
+	and rs.customerid != 'testXYZ'
+	and rs.email != ''
+	and rs.email is not NULL
+	and rs.email not in (select email from insighttemp..gk_customer_blacklist)
+	and rs.email not in 
+		(
+			select 
+				email 
+			from 
+				insighttemp..gk_b2b_suppression b 
+				inner join expanededmergedcustomerids emc (nolock) on b.mergedcustomerid = emc.mergedcustomerid 
+				inner join insightcustomer ic (nolock) on emc.insightcustomerid = ic.id
+		)
+go
+
+	
+
+if object_id ('tempdb..#WEEKLYEMAILOPENED') is not NULL
+	drop table #WEEKLYEMAILOPENED
+select
+	distinct ro.campaignID,
+	ro.customerId,
+	ws.sentDate,
+	ws.weekid,
+	ws.financialyearid,
+	ro.eventCapturedDate 'openedDate'
+into
+	#WEEKLYEMAILOPENED
+from
+	responsysOpened ro (nolock)
+	inner join #WEEKLYEMAILSEND ws (nolock) on ro.campaignid = ws.campaignid and ro.customerId = ws.customerId and ro.eventCapturedDate >= ws.sentDate
+where
+	ro.eventCapturedDate >= ws.sentDate
+	and ro.eventCapturedDate < dateadd(day,7,ws.sentDate)
+	and ro.customerid != ''
+	and ro.customerid is not NULL
+	and ro.customerid not like 'X%'
+	and ro.customerid not like '%?%'
+	and ro.customerid not like 'cc%'
+	and ro.customerid not like '%PROOF%'
+	and ro.customerid <> '111111111111'
+	and ro.customerid != '000222'
+	and ro.customerid != 'TEST_001'
+	and ro.customerid != 'testXYZ'
+go
+
+
+if object_id ('tempdb..#WEEKLYEMAILCLICKED') is not NULL
+	drop table #WEEKLYEMAILCLICKED
+select
+	distinct rc.campaignID,
+	rc.customerId,
+	ws.sentDate,
+	ws.weekid,
+	ws.financialyearid,
+	rc.eventCapturedDate 'clickedDate',
+	rc.offerName,
+	rc.offerCategory
+into
+	#WEEKLYEMAILCLICKED
+from
+	responsysClicked rc (nolock)
+	inner join #WEEKLYEMAILSEND ws (nolock) on rc.campaignid = ws.campaignid and rc.customerId = ws.customerId and rc.eventCapturedDate >= ws.sentDate
+where
+	rc.eventCapturedDate >= ws.sentDate
+	and rc.eventCapturedDate < dateadd(day,7,ws.sentDate)
+	and rc.customerid != ''
+	and rc.customerid is not NULL
+	and rc.customerid not like 'X%'
+	and rc.customerid not like '%?%'
+	and rc.customerid not like 'cc%'
+	and rc.customerid not like '%PROOF%'
+	and rc.customerid <> '111111111111'
+	and rc.customerid != '000222'
+	and rc.customerid != 'TEST_001'
+	and rc.customerid != 'testXYZ'
+go
+
+
+if object_id ('tempdb..#WEEKLYEMAILCONVERTED') is not NULL
+	drop table #WEEKLYEMAILCONVERTED
+select
+	distinct e.campaignID,
+	e.sentDate,
+	e.customerid,
+	sum(ti.totalPrice) 'spend7Day',
+	sum(case when s.productsubclassid = 2 then ti.totalPrice end) 'spend7DayHardware'
+into
+	#WEEKLYEMAILCONVERTED
+from
+	#WEEKLYEMAILSEND e
+	inner join expanededmergedcustomerids emc (nolock) on e.customerid = emc.mergedcustomerid
+	inner join transactions tc (nolock) on emc.insightcustomerid = tc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	tc.transactiondate >= e.sentDate
+	and tc.transactiondate < dateadd(day,7,e.sentDate)
+	and ti.transactiontypeid = 1
+	and (s.platformid in (162,191,288,289,291) 
+		or (departmentid in (314,514) and subdepartmentid in (710,720))
+		or (departmentid in (449,649,499,699)))
+	and marketplacevendorid = 0001
+	and tc.storenumber != 9999
+group by
+	e.campaignID,
+	e.sentDate,
+	e.customerid
+go
+
+
+
+
+if object_id ('tempdb..#EMAILSTAT') is not NULL
+	drop table #EMAILSTAT
+select
+	ws.*,
+	ISNULL(wo.custUniqueOpen,0) 'custUniqueOpen',
+	convert(decimal,ISNULL(wo.custUniqueOpen,0)) / ws.custSent 'uniqueOpenRate',
+	ISNULL(wc.custUniqueClick,0) 'custUniqueClick',
+	ISNULL((convert(decimal,wc.custUniqueClick) / wo.custUniqueOpen),0) 'uniqueClickRate',
+	ISNULL(wv.custUniqueConverted,0) 'custUniqueConverted',
+	convert(decimal,ISNULL(wv.custUniqueConverted,0)) / ws.custSent 'uniqueConversionRate',
+	ISNULL(wv.custConvertedSpend,0) 'custConvertedSpend',
+	ISNULL(wv.custConvertedSpendConsoles,0) 'custConvertedSpendConsoles'
+into
+	#EMAILSTAT
+from
+	(
+		select
+			distinct ws.financialyearid,
+			ws.weekid,
+			ws.campaignID,
+			ws.campaignName,
+			ws.sentDate,
+			ws.purpose,
+			ws.marketingStrategy,
+			ws.marketingProgram,
+			count(distinct ws.customerid) 'custSent'
+		from
+			#WEEKLYEMAILSEND ws
+		group by
+			ws.financialyearid,
+			ws.weekid,
+			ws.campaignID,
+			ws.campaignName,
+			ws.sentDate,
+			ws.purpose,
+			ws.marketingStrategy,
+			ws.marketingProgram
+	)WS
+	left outer join
+	(
+		select
+			distinct wo.campaignID,
+			wo.sentDate,
+			count(distinct wo.customerid) 'custUniqueOpen'
+		from
+			#WEEKLYEMAILOPENED wo
+		group by
+			wo.campaignID,
+			wo.sentDate
+	)WO on ws.campaignid = wo.campaignid and ws.sentdate = wo.sentdate
+	left outer join
+	(
+		select
+			distinct wc.campaignID,
+			wc.sentDate,
+			count(distinct wc.customerid) 'custUniqueClick'
+		from
+			#WEEKLYEMAILCLICKED wc
+		group by
+			wc.campaignID,
+			wc.sentDate
+	)WC on ws.campaignid = wc.campaignid and ws.sentdate = wc.sentdate
+	left outer join
+	(
+		select
+			distinct wv.campaignID,
+			wv.sentDate,
+			count(distinct wv.customerid) 'custUniqueConverted',
+			sum(wv.spend7Day) 'custConvertedSpend',
+			sum(wv.spend7DayHardware) 'custConvertedSpendConsoles'
+		from
+			#WEEKLYEMAILCONVERTED wv
+		group by
+			wv.campaignID,
+			wv.sentDate
+	)WV on ws.campaignid = wv.campaignid and ws.sentdate = wv.sentdate
+go
+
+
+
+select
+	distinct ES.campaignID,
+	ES.campaignName,
+	ES.sentDate,
+	ES.custSent,
+	ES.custUniqueOpen,
+	ES.uniqueOpenRate,
+	ES.custUniqueClick,
+	ES.uniqueClickRate,
+	ES.custUniqueConverted,
+	ES.custConvertedSpend,
+	ES.custConvertedSpendConsoles
+from
+	#EMAILSTAT ES
+order by
+	es.sentDate,
+	es.campaignName
+
