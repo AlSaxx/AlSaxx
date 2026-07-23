@@ -1,0 +1,470 @@
+use insight
+go
+
+
+if object_id ('tempdb..#ACTIVE_EM') is not NULL
+	drop table #ACTIVE_EM
+select
+	distinct emc.mergedcustomerid
+into
+	#ACTIVE_EM
+from
+	insightcustomer ic (nolock)
+	inner join transactions tc (nolock) on ic.id = tc.insightcustomerid
+	inner join expanededmergedcustomerids emc (nolock) on tc.insightcustomerid = emc.insightcustomerid
+	inner join compositecustomer cc (nolock) on emc.mergedcustomerid = cc.id
+where
+	tc.transactiondate >= cast(dateadd(month,-18,getdate()) as date)
+	and tc.storenumber != 9999
+	and ic.email <> ''
+	and ic.email is not NULL
+	and (cc.dateOfBirth < cast(dateadd(year,-16,getdate()) as date)				--- !!!base around PEGI rating!!!
+		or cc.dateOfBirth is NULL
+		or cc.dateOfBirth = '')
+	and ic.firstName != 'GDPR'
+	and ic.lastName != 'GDPR'
+	and ic.email != ic.hashedEmail
+	and cc.rewardcontactablebyemail = 1
+	and ic.id not in (select distinct insightcustomerid from insighttemp..gk_customer_blacklist)
+	and ic.email not in (select distinct email from insighttemp..GK_GDPR_SUPPRESSION)
+go
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+if object_id ('tempdb..#PREORDER') is not NULL
+	drop table #PREORDER
+select
+	distinct a.mergedcustomerid
+into
+	#PREORDER
+from
+	#ACTIVE_EM a (nolock)
+	inner join expanededmergedcustomerids emc (nolock) on a.mergedcustomerid = emc.mergedcustomerid
+	inner join transactions tc (nolock) on tc.insightcustomerid = emc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	s.sku in ('832901','832902','832903')	-- Spiderman 2 SKU's
+	and ti.transactiontypeid in (1,2)
+go
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+if object_id ('tempdb..#PreviousSpM') is not NULL
+	drop table #PreviousSpM
+select
+	distinct a.mergedCustomerId
+into
+	#PreviousSpM
+from
+	#ACTIVE_EM a (nolock)
+	inner join ExpanededMergedCustomerIds emc on emc.mergedCustomerId = a.mergedCustomerId
+	inner join transactions tc (nolock) on emc.insightCustomerId = tc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	title like '%Spider-Man%'
+	and platformId in (163,130,287)
+	and marketplaceVendorId = 0001
+	and (s.productsubclassid in (1,2) or s.productclassid = 5)
+	and ti.transactiontypeid in (1,6)
+	and a.mergedCustomerId not in (select distinct mergedCustomerId from #PREORDER)
+go
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+DECLARE @cScore decimal (10,2), @cust int, @topAssCount int
+SET @cScore = 0.34 -- CAN BE ADJUSTED TO INCREASE/DECREASE NUMBER OF TITLES (DEFAULT 0.1)
+SET @cust = 250  -- CAN BE ADJUSTED TO INCREASE/DECREASE MINIMUM CUSTOMER BUY IN CAP (DEFAULT 100)
+SET @topAssCount = 1 -- CAN BE ADJUSTED TO INCREASE/DECREASE MINIMUM TITLES PER CUSTOMER BUY IN CAP (DEFAULT 1)
+
+
+if object_id ('tempdb..#VARVALS') is not NULL
+	drop table #VARVALS
+select
+	@cScore 'cScore',
+	@cust 'cust',
+	@topAssCount 'topAssCount'
+into
+	#VARVALS
+go
+
+
+if object_id ('tempdb..#TARGETSKU') is not NULL
+	drop table #TARGETSKU
+select
+	*
+into
+	#TARGETSKU
+from
+	sku s
+where 
+	s.title like '%Spider-Man%'
+	and platformId in (163,130,287)
+	and marketplaceVendorId = 0001
+	and (s.productsubclassid in (1,2) or s.productclassid = 5)
+go
+
+--select * from Sku s
+--where s.title like '%Spider-Man%'
+--and platformId in (163,130,287)
+--and departmentId = 448
+--and marketplaceVendorId = 0001
+--and (s.productsubclassid in (1,2) or s.productclassid = 5)
+--go
+
+if object_id ('tempdb..#TARGETCUST') is not NULL
+	drop table #TARGETCUST
+select
+	distinct emc.mergedcustomerid 'cid'
+into
+	#TARGETCUST
+from
+	expanededmergedcustomerids emc (nolock)
+	inner join transactions tc (nolock) on emc.insightcustomerid = tc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join #TARGETSKU s (nolock) on ti.sku = s.sku
+where
+	tc.storenumber != 9999
+	and emc.mergedcustomerid not in (select mergedcustomerid from insighttemp..gk_customer_blacklist)
+	and emc.mergedcustomerid not in (select distinct mergedcustomerid from insighttemp..GK_B2B_suppression)
+go
+
+
+
+if object_id ('tempdb..#TRGT_ACT_CUST') is not NULL
+	drop table #TRGT_ACT_CUST
+select
+	distinct cid
+into
+	#TRGT_ACT_CUST
+from
+	#TARGETCUST t
+	inner join expanededmergedcustomerids emc (nolock) on t.cid = emc.mergedcustomerid
+	inner join transactions tc (nolock) on emc.insightcustomerid = tc.insightcustomerid
+where
+	transactiondate > cast(dateadd(month,-12,getdate()) as date)
+	and totalamount != 0
+	and storenumber <> 9999
+go
+
+
+
+if object_id ('tempdb..#TOP_PROD') is not NULL
+	drop table #TOP_PROD
+select
+	s.sku,
+	s.title,
+	count (distinct emc.mergedcustomerid) 'CustCount'
+into
+	#TOP_PROD
+from
+	transactions tc (nolock)
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+	inner join insightcustomer ic (nolock) on tc.insightcustomerid = ic.id
+	inner join expanededmergedcustomerids emc (nolock) on ic.id = emc.insightcustomerid
+	inner join #TARGETCUST d (nolock) on emc.mergedcustomerid = d.cid
+where
+	transactiondate > cast(dateadd(month,-12,getdate()) as date)
+	and	transactiontypeid = 1
+	and productclassid = 1
+	and productsubclassid = 1
+	and s.title not like 'POB %'
+	and	s.sku not in (select sku from sku where departmentid = 470 and subdepartmentid = 50)
+	and s.sku not in (select sku from #TARGETSKU)
+group by
+	s.sku,
+	s.title
+having 
+	sum(quantity) > 20
+go
+
+
+
+if object_id ('tempdb..#TOPASSTITLES') is not NULL
+	drop table #TOPASSTITLES
+select
+	*,
+	row_number() over (order by (cast(cust as decimal (10,2)) / tCust) desc) 'cScoreRank'
+into
+	#TOPASSTITLES
+from
+	(
+		select
+			*,
+			(cast(cust as decimal (10,2)) / tCust) 'cScore'
+		from
+			(
+				select
+					distinct TP.title,
+					sum(TP.CustCount) 'Cust',
+					sum(BUSTOT.cust) 'tCust'
+				from
+					#TOP_PROD TP		
+					left outer join
+					(
+						select
+							distinct TP.sku,
+							count (distinct emc.mergedcustomerid) as 'cust'	
+						from
+							expanededmergedcustomerids emc (nolock)
+							inner join insightcustomer ic (nolock) on emc.insightcustomerid = ic.id
+							inner join transactions tc (nolock) on ic.id = tc.insightcustomerid
+							inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+							inner join #TOP_PROD TP	on ti.sku = TP.sku		
+						where
+							transactiondate > cast(dateadd(month,-12,getdate()) as date)
+							and
+							transactiontypeid = 1
+						group by
+							TP.sku
+					)BUSTOT
+						on TP.sku = BUSTOT.sku
+				group by
+					TP.title
+			)SUMM
+	)XLT
+where
+	cScore >= (select cScore from #VARVALS)
+	and cust >= (select cust from #VARVALS) 
+go
+
+
+
+
+select
+	count (distinct cid) 'TargetCust'
+from
+	#TRGT_ACT_CUST
+go
+
+select
+	count (distinct title) 'assTitles'
+from
+	#TOPASSTITLES
+go
+
+select
+	(cast(cust as decimal (10,2)) / trgtCustAct) 'tScore'
+from
+	(
+		select
+			count (distinct t.cid) 'Cust'
+		from
+			#TARGETCUST t
+			inner join expanededmergedcustomerids emc (nolock) on t.cid = emc.mergedcustomerid
+			inner join transactions tc (nolock) on emc.insightcustomerid = tc.insightcustomerid
+			inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+			inner join sku s (nolock) on ti.sku = s.sku
+			inner join #TOPASSTITLES tat on s.title = tat.title
+		where
+			transactiondate > cast(dateadd(month,-12,getdate()) as date)
+			and	transactiontypeid = 1
+			and productclassid = 1
+			and productsubclassid = 1	
+	)A
+cross join
+	(
+		select
+			count (distinct cid) 'trgtCustAct'
+		from
+			#TRGT_ACT_CUST
+	)B
+go
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------
+-- TOP ASSOCIATED TITLES --
+-----------------------------------------------------------------------------------------------------------------------------
+
+
+select
+	distinct title,
+	cScoreRank,
+	cScore,
+	cust,
+	tCust
+from
+	#TOPASSTITLES
+order by
+	cScoreRank
+
+
+-----------------------------------------------------------------------------------------------------------------------------
+-- TARGETING TOP ASSOCIATED TITLES --
+-----------------------------------------------------------------------------------------------------------------------------
+
+
+if object_id ('tempdb..#SpM2_POTENTIAL') is not NULL
+	drop table #SpM2_POTENTIAL
+select
+	distinct a.mergedcustomerid,
+	count (distinct tat.title) 'topAssCount'
+into
+	#SpM2_POTENTIAL
+from
+	#ACTIVE_EM a (nolock)
+	inner join expanededmergedcustomerids emc (nolock) on a.mergedcustomerid = emc.mergedcustomerid
+	inner join transactions tc (nolock) on tc.insightcustomerid = emc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+	inner join #TOPASSTITLES tat on s.title = tat.title
+where
+	transactiondate > cast(dateadd(month,-12,getdate()) as date)
+	and	transactiontypeid = 1
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #PREORDER)
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #PreviousSpM)
+group by
+	a.mergedcustomerid
+go
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+-- ACTION/ADVENTURE CUSTOMERS
+
+if object_id ('tempdb..#ACTIONADV_PS5') is not NULL
+	drop table #ACTIONADV_PS5
+select
+	distinct a.mergedcustomerid
+into
+	#ACTIONADV_PS5
+from
+	#ACTIVE_EM a (nolock)
+	inner join expanededmergedcustomerids emc (nolock) on a.mergedcustomerid = emc.mergedcustomerid
+	inner join transactions tc (nolock) on tc.insightcustomerid = emc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	s.genreid = 8
+	and s.platformid = 287
+	and tc.transactiondate >= cast(dateadd(month,-18,getdate()) as date)
+	and s.marketplacevendorid = 0001
+	and ti.transactiontypeid in (1,6)
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #PREORDER)
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #PreviousSpM)
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #SpM2_POTENTIAL)
+go
+
+if object_id ('tempdb..#AgeGroup') is not NULL
+	drop table #AgeGroup
+select
+	distinct a.mergedcustomerid
+into
+	#AgeGroup
+from
+	#ACTIVE_EM a (nolock)
+	inner join expanededmergedcustomerids emc (nolock) on a.mergedcustomerid = emc.mergedcustomerid
+	inner join InsightCustomer ic on ic.id = emc.insightCustomerId
+	inner join transactions tc (nolock) on tc.insightcustomerid = emc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where s.platformid = 287
+	and tc.transactiondate >= cast(dateadd(month,-18,getdate()) as date)
+	and s.marketplacevendorid = 0001
+	and ti.transactiontypeid in (1,6)
+	and ic.dateOfBirth < cast(dateadd(year,-18,getdate()) as date)
+	and ic.dateOfBirth >= cast(dateadd(year,-30,getdate()) as date)
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #PREORDER)
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #PreviousSpM)
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #SpM2_POTENTIAL)
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #ACTIONADV_PS5)
+go
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+-- PS5 CUSTOMERS
+
+if object_id ('tempdb..#PS5') is not NULL
+	drop table #PS5
+select
+	distinct a.mergedcustomerid
+into
+	#PS5
+from
+	#ACTIVE_EM a (nolock)
+	inner join expanededmergedcustomerids emc (nolock) on a.mergedcustomerid = emc.mergedcustomerid
+	inner join transactions tc (nolock) on tc.insightcustomerid = emc.insightcustomerid
+	inner join transactionitem ti (nolock) on tc.id = ti.transactionid
+	inner join sku s (nolock) on ti.sku = s.sku
+where
+	(s.platformid = 287 
+		or (s.departmentid in (314,514) and s.subdepartmentid = 170)
+			or (s.departmentid in (498,698)))
+	and tc.transactiondate >= cast(dateadd(month,-18,getdate()) as date)
+	and s.marketplacevendorid = 0001
+	and ti.transactiontypeid in (1,6)
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #PREORDER)
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #SpM2_POTENTIAL)
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #PreviousSpM)
+	and a.mergedcustomerid not in (select distinct mergedcustomerid from #ACTIONADV_PS5)
+go
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+if object_id ('tempdb..#TG_X') is not NULL
+	drop table #TG_X
+select
+	distinct mergedcustomerid,
+	customerGroup,
+	cgID,
+	NTILE(20) over(partition by customerGroup order by newid()) 'Xile'
+into
+	#TG_X
+from 
+	(
+		select distinct mergedcustomerid, 'Spiderman (2018)' 'customerGroup', 1 'cgID' from #PreviousSpM
+		union all
+		select distinct mergedcustomerid, 'Spiderman 2 Potentials' 'customerGroup', 2 'cgID' from #SpM2_POTENTIAL
+		union all
+		select distinct mergedcustomerid, 'Action/Adventure PS5' 'customerGroup', 3 'cgID' from #ACTIONADV_PS5
+		union all
+		select distinct mergedcustomerid, '18-30 Age Group' 'customerGroup', 4 'cgID' from #AgeGroup
+		union all
+		select distinct mergedcustomerid, 'PS5' 'customerGroup', 5 'cgID' from #PS5
+	)X
+go
+
+
+
+if object_id ('tempdb..#TARGETFINAL') is not NULL
+	drop table #TARGETFINAL
+select
+	distinct mergedcustomerid,
+	customerGroup,
+	cgID,
+	'ControlGroup' 'targetGroup',
+	1 'isControlGroup'
+into
+	#TARGETFINAL
+from
+	#TG_X
+where
+	Xile in (1,20)
+union all
+select
+	distinct mergedcustomerid,
+	customerGroup,
+	cgID,
+	'TargetGroup' 'targetGroup',
+	0 'isControlGroup'
+from
+	#TG_X
+where
+	Xile not in (1,20)
+go
+
+
+
+select
+	distinct cgID,
+	customerGroup,
+	count(distinct mergedcustomerid) 'cCount'
+from
+	#TARGETFINAL
+group by
+	customerGroup,
+	cgID
+order by
+	cgID
+
