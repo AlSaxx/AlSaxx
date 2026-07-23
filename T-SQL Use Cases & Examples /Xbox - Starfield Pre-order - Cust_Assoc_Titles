@@ -1,0 +1,56 @@
+USE Insight
+GO
+
+IF OBJECT_ID ('tempdb..#SCE') IS NOT NULL
+	DROP TABLE #SCE
+
+SELECT *
+	INTO #SCE
+		FROM sku (NOLOCK)
+		WHERE sku IN ('832332','832333','832334','832340', '832341', '832342')	-- Starfield: Constellation Edition (XB,PC)
+GO
+
+IF OBJECT_ID ('tempdb..#SCCust') IS NOT NULL
+	DROP TABLE #SCCust
+
+SELECT DISTINCT EMC.mergedCustomerId, EMC.insightCustomerId
+	INTO #SCCust
+		FROM Transactions AS T (NOLOCK)
+			INNER JOIN ExpanededMergedCustomerIds AS EMC (NOLOCK) ON T.InsightCustomerId = EMC.insightCustomerId
+			INNER JOIN TransactionItem AS TI (NOLOCK) ON T.Id = TI.transactionId
+			INNER JOIN #SCE AS S ON S.sku = TI.sku
+		WHERE T.transactionDate >= '2023-06-12' AND T.transactionDate < '2023-07-10'
+			AND transactionTypeId = 2
+			AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_CUSTOMER_BLACKLIST)							-- Restrict customer Blacklist from Insighttemp
+			AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_B2B_suppression)
+		GROUP BY
+			EMC.mergedCustomerId,
+			EMC.insightCustomerId
+GO
+
+--------------------------------------------------------
+--------------------------------------------------------
+
+SELECT COUNT(DISTINCT SF.mergedCustomerId) AS 'ConstellationPO_Cust'
+	FROM #SCCust AS SF
+GO
+
+SELECT TOP 100 s.sku, s.title, SUM(quantity) AS 'Units'
+	FROM Transactions AS T (NOLOCK)
+		INNER JOIN #SCCust AS EMC ON T.InsightCustomerId = EMC.insightCustomerId
+		INNER JOIN TransactionItem AS TI (NOLOCK) ON T.Id = TI.transactionId
+		INNER JOIN Sku AS S(NOLOCK) ON TI.sku = S.sku
+	WHERE transactionTypeId = 1
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_CUSTOMER_BLACKLIST)
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_B2B_suppression)
+		AND s.sku NOT IN ('832332','832333','832334','832340', '832341', '832342')
+		AND s.productsubclassID = 1
+	GROUP BY
+		s.sku,
+		s.title
+	ORDER BY
+		'Units' DESC
+GO
+
+
+--select top 1000 * from SKU
