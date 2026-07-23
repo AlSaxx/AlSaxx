@@ -1,0 +1,69 @@
+USE GAME_ARC
+GO
+
+IF OBJECT_ID ('tempdb..#SC') IS NOT NULL
+	DROP TABLE #SC
+
+SELECT *
+	INTO #SC
+	FROM DIM_PRODUCT (NOLOCK)
+	WHERE SOURCE_PRODUCT_CODE = '830743'													-- Starfield: Controller 			
+GO
+
+IF OBJECT_ID ('tempdb..#SH') IS NOT NULL
+	DROP TABLE #SH
+
+SELECT *
+	INTO #SH
+	FROM DIM_PRODUCT (NOLOCK)
+	WHERE SOURCE_PRODUCT_CODE = '830746'													-- Starfield: Headset 			
+GO
+
+--------------------------------------------------------
+--------------------------------------------------------
+
+IF OBJECT_ID ('tempdb..#CBskt') IS NOT NULL
+	DROP TABLE #CBskt
+
+SELECT DISTINCT F.INVOICE_NO		--, D.DATE_FLD, SUM(F.SALE_TOT_QTY) 'UnitSales'
+	INTO #CBskt
+		FROM FCT_SALES_LINES AS F (NOLOCK)
+			INNER JOIN #SC AS P ON P.PRODUCT_KEY = F.PRODUCT_KEY
+			INNER JOIN DIM_DATE AS D (NOLOCK) ON D.DATE_KEY = F.DATE_KEY
+		WHERE F.SALE_INVC_TYPE IN ('REG-INV','DISC-SALE')
+			AND D.DATE_FLD >= '2023-06-12' AND D.DATE_FLD < '2023-06-26' --CAST(GETDATE() AS date)
+			AND MERCHANDISE_FLG = 'YES'
+		GROUP BY
+			F.INVOICE_NO
+GO
+
+IF OBJECT_ID ('tempdb..#HBskt') IS NOT NULL
+	DROP TABLE #HBskt
+
+SELECT DISTINCT F.INVOICE_NO		--, D.DATE_FLD, SUM(F.SALE_TOT_QTY) 'UnitSales'
+	INTO #HBskt
+		FROM FCT_SALES_LINES AS F (NOLOCK)
+			INNER JOIN #SH AS P ON P.PRODUCT_KEY = F.PRODUCT_KEY
+			INNER JOIN DIM_DATE AS D (NOLOCK) ON D.DATE_KEY = F.DATE_KEY
+		WHERE F.SALE_INVC_TYPE IN ('REG-INV','DISC-SALE')
+			AND D.DATE_FLD >= '2023-06-12' AND D.DATE_FLD < '2023-06-26' --CAST(GETDATE() AS date)
+			AND MERCHANDISE_FLG = 'YES'
+		GROUP BY
+			F.INVOICE_NO
+GO
+
+--------------------------------------------------------
+--------------------------------------------------------
+
+SELECT COUNT(DISTINCT INVOICE_NO) AS 'Controller_Baskets'
+	FROM #CBskt
+GO
+
+SELECT COUNT(DISTINCT INVOICE_NO) AS 'Headset_Baskets'
+	FROM #HBskt
+GO
+
+SELECT COUNT(DISTINCT C.INVOICE_NO) AS 'Crossover_Baskets'
+	FROM #CBskt AS C
+		INNER JOIN #HBskt AS H ON H.INVOICE_NO = C.INVOICE_NO
+GO
