@@ -1,0 +1,10 @@
+let
+    Source = Excel.Workbook(File.Contents("C:\\Users\\alast\\OneDrive\\Documents\\Work\\Powerforce Task\\Data Set\\D&I Manager Recruitment Task.xlsx"), null, true),
+    #"Global retail _Sheet" = Source{[Item="Global retail ",Kind="Sheet"]}[Data],
+    #"Promoted Headers" = Table.PromoteHeaders(#"Global retail _Sheet", [PromoteAllScalars=true]),
+    #"Changed Type" = Table.TransformColumnTypes(#"Promoted Headers", {{"Customer_ID", Int64.Type}, {"City", type text}, {"State", type text}, {"Zipcode", Int64.Type}, {"Country", type text}, {"Age", Int64.Type}, {"Gender", type text}, {"Income", type text}, {"Customer_Segment", type text}}),
+    #"Selected Columns" = Table.SelectColumns(#"Changed Type", {"Customer_ID", "City", "State", "Zipcode", "Country", "Age", "Gender", "Income", "Customer_Segment"}),
+    #"Filtered Blanks" = Table.SelectRows(#"Selected Columns", each [Customer_ID] <> null and [Customer_ID] <> ""),
+    Deduplicated = Table.Distinct(#"Filtered Blanks", {"Customer_ID"})
+in
+    Deduplicated
