@@ -1,0 +1,74 @@
+USE GAME_ARC
+GO
+
+--------------------------------------------------------------------------------------------
+--------------------------------------TEMP TABLES-------------------------------------------
+--------------------------------------------------------------------------------------------
+
+IF OBJECT_ID ('tempdb..#SCH') IS NOT NULL
+	DROP TABLE #SCH
+
+SELECT *
+	INTO #SCH
+	FROM DIM_PRODUCT (NOLOCK)
+	WHERE SOURCE_PRODUCT_CODE IN ('830743', '830746')										-- Starfield: Controller, Starfield: Headset 			
+GO
+
+--SELECT * FROM #SCH
+
+------------------------------------------------------------------------------------------
+------------------------------------DATA PULL---------------------------------------------
+------------------------------------------------------------------------------------------
+
+SELECT tDate, [Online], [Store]																-- UNIT SALES
+	FROM (
+	SELECT CAST(D.DATE_FLD AS date) AS 'tDate', SUM(FCT.SALE_TOT_QTY) AS 'UnitSales',
+		CASE WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+			ELSE 'Store' END AS 'Channel' 
+			FROM FCT_SALES_LINES AS FCT (NOLOCK)
+				INNER JOIN #SCH AS P (NOLOCK) ON P.PRODUCT_KEY = FCT.PRODUCT_KEY
+				INNER JOIN DIM_DATE AS D (NOLOCK) ON D.DATE_KEY = FCT.DATE_KEY
+			WHERE D.DATE_FLD >= '2023-06-12' AND D.DATE_FLD < CAST(GETDATE() AS date)
+				AND SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+				AND MERCHANDISE_FLG = 'YES'
+			GROUP BY
+				CAST(D.DATE_FLD AS date),
+				CASE WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+					ELSE 'Store' END
+) AS A
+PIVOT
+(
+	SUM(UnitSales)
+	FOR Channel IN (
+		[Online],
+		[Store]) 
+) AS PIVOT_TABLE_UNITS
+	ORDER BY
+		tDate
+
+
+SELECT tDate, [Online], [Store]																-- GROSS VALUE SALES
+	FROM (
+	SELECT CAST(D.DATE_FLD AS date) AS 'tDate', SUM(FCT.SALE_NET_VAL + FCT.SALE_TOT_TAX_VAL) AS 'GrossValueSales',
+		CASE WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+			ELSE 'Store' END AS 'Channel' 
+			FROM FCT_SALES_LINES AS FCT (NOLOCK)
+				INNER JOIN #SCH AS P (NOLOCK) ON P.PRODUCT_KEY = FCT.PRODUCT_KEY
+				INNER JOIN DIM_DATE AS D (NOLOCK) ON D.DATE_KEY = FCT.DATE_KEY
+			WHERE D.DATE_FLD >= '2023-06-12' AND D.DATE_FLD < CAST(GETDATE() AS date)
+				AND SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+				AND MERCHANDISE_FLG = 'YES'
+			GROUP BY
+				CAST(D.DATE_FLD AS date),
+				CASE WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+					ELSE 'Store' END
+) AS A
+PIVOT
+(
+	SUM(GrossValueSales)
+	FOR Channel IN (
+		[Online],
+		[Store]) 
+) AS PIVOT_TABLE_VALUE
+	ORDER BY
+		tDate
