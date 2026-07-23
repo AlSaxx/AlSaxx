@@ -1,0 +1,100 @@
+USE GAME_ARC
+GO
+
+--------------------------------------TEMP TABLES-------------------------------------------
+--------------------------------------------------------------------------------------------
+
+IF OBJECT_ID ('tempdb..#SX') IS NOT NULL
+	DROP TABLE #SX
+
+SELECT *
+	INTO #SX
+	FROM DIM_PRODUCT
+	WHERE SOURCE_PRODUCT_CODE IN ('800821','826515','830005')
+GO
+
+--SELECT * FROM #SX
+
+IF OBJECT_ID ('tempdb..#XAA') IS NOT NULL
+	DROP TABLE #XAA
+
+SELECT *
+	INTO #XAA
+	FROM DIM_PRODUCT
+	WHERE SOURCE_PRODUCT_CODE IN ('801506', '826947','801536')
+GO
+
+-- SELECT * FROM #XAA
+
+------------------------------------DATA PULL---------------------------------------------
+------------------------------------------------------------------------------------------
+
+SELECT	tDate,
+		COALESCE([Online],0) 'Online',
+		COALESCE([Store],0) 'Store'																							-- UNIT SALES
+FROM (
+	SELECT	CAST(D.DATE_FLD as date) 'tDate',
+			CASE 
+				WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+				ELSE 'Store'
+			END 'Channel',
+			SUM(FCT.SALE_TOT_QTY) 'UnitSales'
+			FROM FCT_SALES_LINES FCT (NOLOCK)
+				--INNER JOIN #SX P (NOLOCK) ON P.PRODUCT_KEY = FCT.PRODUCT_KEY
+				INNER JOIN #XAA P (NOLOCK) ON P.PRODUCT_KEY = FCT.PRODUCT_KEY
+				INNER JOIN DIM_DATE D (NOLOCK) ON D.DATE_KEY = FCT.DATE_KEY
+			WHERE D.DATE_FLD >= '2023-10-31' AND D.DATE_FLD < '2023-11-20'
+				AND SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+				AND MERCHANDISE_FLG = 'YES'
+			GROUP BY
+				D.DATE_FLD,
+				CASE 
+					WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+					ELSE 'Store'
+				END
+) A
+PIVOT
+(
+	SUM(UnitSales)
+	FOR Channel IN (
+					[Online],
+					[Store]
+					) 
+) PVT
+	ORDER BY
+		tDate
+
+SELECT	tDate,
+		COALESCE([Online],0) 'Online',
+		COALESCE([Store],0) 'Store'																								-- VALUE SALES
+FROM (
+	SELECT	CAST(D.DATE_FLD as date) 'tDate',
+				CASE 
+					WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+					ELSE 'Store'
+				END 'Channel', 
+			SUM(FCT.SALE_NET_VAL + FCT.SALE_TOT_TAX_VAL) 'Gross_Val'
+			FROM FCT_SALES_LINES FCT (NOLOCK)
+				--INNER JOIN #SX P (NOLOCK) ON P.PRODUCT_KEY = FCT.PRODUCT_KEY
+				INNER JOIN #XAA P (NOLOCK) ON P.PRODUCT_KEY = FCT.PRODUCT_KEY
+				INNER JOIN DIM_DATE AS D (NOLOCK) ON D.DATE_KEY = FCT.DATE_KEY
+			WHERE D.DATE_FLD >= '2023-10-31' AND D.DATE_FLD < '2023-11-20'
+				AND SALE_INVC_TYPE IN ('REG-INV', 'DISC-SALE')
+				AND MERCHANDISE_FLG = 'YES'
+			GROUP BY
+				D.DATE_FLD,
+				CASE 
+					WHEN FCT.STORE_CODE IN  ('UK - 887', 'UK - 889') THEN 'Online'
+					ELSE 'Store'
+				END
+) A
+PIVOT
+(
+	SUM(Gross_Val)
+	FOR Channel IN (
+		[Online],
+		[Store]) 
+) PVT
+	ORDER BY
+		tDate
+GO
