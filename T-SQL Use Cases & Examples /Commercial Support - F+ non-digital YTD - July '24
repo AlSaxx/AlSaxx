@@ -1,0 +1,64 @@
+USE GAME_ARC
+GO
+
+---------------------------PRODUCT TABLES------------------------------
+-----------------------------------------------------------------------
+
+IF OBJECT_ID ('tempdb..#PROD') IS NOT NULL
+	DROP TABLE #PROD
+
+SELECT *
+	INTO #PROD
+	FROM DIM_PRODUCT P (NOLOCK)
+	WHERE	P.DEPARTMENT_CODE <> 'D'	
+		OR (P.DEPARTMENT_CODE = 'M' 
+		AND P.CLASS_CODE NOT IN ('J','B'))
+		AND MERCHANDISE_FLG = 'YES'
+GO
+
+-----------------------------AGG TABLES--------------------------------
+-----------------------------------------------------------------------
+
+--IF OBJECT_ID ('tempdb..#TTrans') IS NOT NULL
+--	DROP TABLE #TTrans
+
+--SELECT	D.[YEAR] 'cYr',
+--		D.[WEEK_NUMBER_THIS_YEAR] 'cWk',
+--		COUNT(DISTINCT F.INVOICE_NO) 'Tot_Trans'
+--	INTO #TTrans
+--	FROM FCT_SALES_LINES F (NOLOCK)
+--		INNER JOIN DIM_DATE D (NOLOCK) ON D.DATE_KEY = F.DATE_KEY
+--		INNER JOIN #PROD P ON P.PRODUCT_KEY = F.PRODUCT_KEY
+--	WHERE
+--		F.SALE_INVC_TYPE IN ('REG-INV','DISC-SALE')
+--		AND D.[YEAR] = 2024
+--	GROUP BY
+--		D.[YEAR],
+--		D.[WEEK_NUMBER_THIS_YEAR]
+--GO
+
+--SELECT * FROM #TTrans
+
+SELECT	D.[YEAR] 'cYr',
+		D.[WEEK_NUMBER_THIS_YEAR] 'cWk',
+		CASE
+			WHEN T.TENDER_CODE = 'CN' THEN 'F+'
+			ELSE 'Non-F+'
+		END 'Payment',
+		COUNT(DISTINCT F.INVOICE_NO) 'Transactions'
+	FROM FCT_SALES_LINES F (NOLOCK)
+		INNER JOIN FCT_SALES_INVOICE_TENDER IT (NOLOCK) ON F.INVOICE_NO = IT.INVOICE_NO
+		INNER JOIN DIM_TENDER T (NOLOCK) ON T.TENDER_KEY = IT.TENDER_KEY
+		INNER JOIN DIM_DATE D (NOLOCK) ON D.DATE_KEY = F.DATE_KEY
+		INNER JOIN #PROD P ON P.PRODUCT_KEY = F.PRODUCT_KEY
+	WHERE
+		D.[YEAR] = 2024
+		AND F.SALE_INVC_TYPE IN ('REG-INV','DISC-SALE')
+	GROUP BY
+		D.[YEAR],
+		D.[WEEK_NUMBER_THIS_YEAR],
+		CASE
+			WHEN T.TENDER_CODE = 'CN' THEN 'F+'
+			ELSE 'Non-F+'
+		END
+GO
