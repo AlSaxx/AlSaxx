@@ -1,0 +1,77 @@
+let
+    Source = Excel.Workbook(File.Contents("C:\\Users\\alast\\OneDrive\\Documents\\Work\\Powerforce Task\\Data Set\\D&I Manager Recruitment Task.xlsx"), null, true),
+    #"Global retail _Sheet" = Source{[Item="Global retail ",Kind="Sheet"]}[Data],
+    #"Promoted Headers" = Table.PromoteHeaders(#"Global retail _Sheet", [PromoteAllScalars=true]),
+    #"Changed Type" = Table.TransformColumnTypes(#"Promoted Headers",{{"Transaction_ID", Int64.Type}, {"Customer_ID", Int64.Type}, {"Date", type any}, {"Year", Int64.Type}, {"Month", type text}, {"Time", type time}, {"Total_Purchases", Int64.Type}, {"Amount", Currency.Type}, {"Total_Amount", Currency.Type}, {"Product_Category", type text}, {"Product_Brand", type text}, {"Product_Type", type text}, {"Feedback", type text}, {"Shipping_Method", type text}, {"Payment_Method", type text}, {"Order_Status", type text}, {"Ratings", Int64.Type}, {"products", type text}}),
+    #"Fixed Date" = Table.AddColumn(
+        #"Changed Type",
+        "Date_Fixed",
+        each if [Date] = null then
+            Date.FromText("01 " & [Month] & " " & Text.From([Year]), [Culture="en-GB"])
+        else if Value.Is([Date], type datetime) then DateTime.Date([Date])
+        else if Value.Is([Date], type date) then [Date]
+        else Date.FromText([Date], "en-US"),
+        type date
+    ),
+    #"Removed Original Date" = Table.RemoveColumns(#"Fixed Date", {"Date"}),
+    #"Renamed Date" = Table.RenameColumns(#"Removed Original Date", {{"Date_Fixed", "Date"}}),
+    #"Removed Customer Columns" = Table.RemoveColumns(#"Renamed Date", {"Name", "Email", "Phone", "Address", "City", "State", "Zipcode", "Country", "Age", "Gender", "Income", "Customer_Segment"}),
+    #"Fixed Total_Amount" = Table.AddColumn(
+        #"Removed Customer Columns",
+        "Total_Amount_Fixed",
+        each if [Total_Amount] = null then [Total_Purchases] * [Amount] else [Total_Amount],
+        type number
+    ),
+    #"Removed Original Total_Amount" = Table.RemoveColumns(#"Fixed Total_Amount", {"Total_Amount"}),
+    #"Renamed Total_Amount" = Table.RenameColumns(#"Removed Original Total_Amount", {{"Total_Amount_Fixed", "Total_Amount"}}),
+    #"Fixed Total_Purchases" = Table.AddColumn(
+        #"Renamed Total_Amount",
+        "Total_Purchases_Fixed",
+        each if [Total_Purchases] = null then Number.RoundDown([Total_Amount] / [Amount], 0) else [Total_Purchases],
+        Int64.Type
+    ),
+    #"Removed Original Total_Purchases" = Table.RemoveColumns(#"Fixed Total_Purchases", {"Total_Purchases"}),
+    #"Renamed Total_Purchases" = Table.RenameColumns(#"Removed Original Total_Purchases", {{"Total_Purchases_Fixed", "Total_Purchases"}}),
+    #"Fixed Amount" = Table.AddColumn(
+        #"Renamed Total_Purchases",
+        "Amount_Fixed",
+        each if [Amount] = null then [Total_Amount] / [Total_Purchases] else [Amount],
+        type number
+    ),
+    #"Removed Original Amount" = Table.RemoveColumns(#"Fixed Amount", {"Amount"}),
+    #"Renamed Amount" = Table.RenameColumns(#"Removed Original Amount", {{"Amount_Fixed", "Amount"}}),
+    #"Fixed Product_Category" = Table.ReplaceValue(
+        #"Renamed Amount",
+        each [Product_Category],
+        each if [Product_Category] = null or [Product_Category] = "" then
+            if [products] = "Biography" then "Books"
+            else if [products] = "Blazer" then "Clothing"
+            else if [products] = "Chocolate-covered fruits" then "Grocery"
+            else if [products] = "Chocolate-covered nuts" then "Grocery"
+            else if [products] = "Distilled water" then "Grocery"
+            else if [products] = "Flip flops" then "Clothing"
+            else if [products] = "Self-help" then "Books"
+            else if [products] = "Sheath dress" then "Clothing"
+            else if [products] = "Smart TV" then "Electronics"
+            else if [products] = "Soap dispenser" then "Home Decor"
+            else if [products] = "Sony Xperia Tablet" then "Electronics"
+            else if [products] = "TV stand" then "Home Decor"
+            else if [products] = "Wall art" then "Home Decor"
+            else if [products] = "White chocolate" then "Grocery"
+            else [Product_Category]
+        else [Product_Category],
+        Replacer.ReplaceValue,
+        {"Product_Category"}
+    ),
+    #"ProductLookup" = Table.AddIndexColumn(
+        Table.Distinct(
+            Table.SelectColumns(#"Fixed Product_Category", {"Product_Category", "Product_Brand", "Product_Type", "products"}),
+            {"Product_Category", "Product_Brand", "Product_Type", "products"}
+        ),
+        "Product_ID", 1, 1, Int64.Type
+    ),
+    #"Merged Product_ID" = Table.NestedJoin(#"Fixed Product_Category", {"Product_Category", "Product_Brand", "Product_Type", "products"}, #"ProductLookup", {"Product_Category", "Product_Brand", "Product_Type", "products"}, "ProductDim", JoinKind.LeftOuter),
+    #"Expanded Product_ID" = Table.ExpandTableColumn(#"Merged Product_ID", "ProductDim", {"Product_ID"}),
+    #"Removed Product Columns" = Table.RemoveColumns(#"Expanded Product_ID", {"Product_Category", "Product_Brand", "Product_Type", "products"})
+in
+    #"Removed Product Columns"
