@@ -7,7 +7,7 @@ let
     #"Removed Other Columns1" = Table.SelectColumns(#"Renamed Columns1", {"Source.Name", "Transform File (10)"}),
     #"Expanded Table Column1" = Table.ExpandTableColumn(#"Removed Other Columns1", "Transform File (10)", Table.ColumnNames(#"Transform File (10)"(#"Sample File (10)"))),
     #"Changed Type" = Table.TransformColumnTypes(#"Expanded Table Column1",{{"Source.Name", type text}, {"VehicleDerivativeWkey", Int64.Type}, {"Manufacturer", type text}, {"LocalModelCode", type text}, {"Derivative", type text}, {"Range", type text}, {"BodyType", type text}, {"BodyStyle", type text}}),
-    #"Filtered Rows1" = Table.SelectRows(#"Changed Type", each ([Manufacturer] = "Lexus" or [Manufacturer] = "Toyota")),
+    #"Filtered Rows1" = Table.SelectRows(#"Changed Type", each ([Manufacturer] = "Brand A" or [Manufacturer] = "Brand B")),
     #"Merged Queries" = Table.NestedJoin(#"Filtered Rows1", {"LocalModelCode"}, TransactionsDistinct, {"o_LocalModelCode"}, "TransactionsDistinct", JoinKind.Inner)
 in
     #"Merged Queries"
