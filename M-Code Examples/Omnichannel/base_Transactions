@@ -1,0 +1,12 @@
+let
+    Source = AzureStorage.DataLake("https://tgbedpprdneusa01.dfs.core.windows.net/databricks/prod/curated/powerbisources/consumerone/omnichannel/DMS/CustomerTransactions"),
+    #"Filtered Rows" = Table.SelectRows(Source, each ([Extension] = ".parquet")),
+    #"Filtered Hidden Files1" = Table.SelectRows(#"Filtered Rows", each [Attributes]?[Hidden]? <> true),
+    #"Invoke Custom Function1" = Table.AddColumn(#"Filtered Hidden Files1", "Transform File (11)", each #"Transform File (11)"([Content])),
+    #"Renamed Columns1" = Table.RenameColumns(#"Invoke Custom Function1", {"Name", "Source.Name"}),
+    #"Removed Other Columns1" = Table.SelectColumns(#"Renamed Columns1", {"Source.Name", "Transform File (11)"}),
+    #"Expanded Table Column1" = Table.ExpandTableColumn(#"Removed Other Columns1", "Transform File (11)", Table.ColumnNames(#"Transform File (11)"(#"Sample File (11)"))),
+    #"Changed Type" = Table.TransformColumnTypes(#"Expanded Table Column1",{{"Source.Name", type text}, {"EmailId", type text}, {"MinDateCreated", type date}, {"MaxDateCreated", type date}, {"o_OrderDate", type date}, {"o_RegistrationNumber", type text}, {"o_Price", Int64.Type}, {"o_LocalModelCode", type text}, {"o_ModelDerivative", type text}, {"o_StockType", type text}, {"o_DealerCode", Int64.Type}, {"o_OrderEventId", type text}, {"d_EventDate", type date}, {"d_NewUsed", type text}, {"d_VIN", type text}, {"d_InvoiceValue", Int64.Type}, {"d_RegistrationNumber", type text}, {"d_DealerCode", Int64.Type}, {"d_LocalModelCode", type text}, {"PurchaseOrder", Int64.Type}}),
+    #"Removed Columns" = Table.RemoveColumns(#"Changed Type",{"Source.Name"})
+in
+    #"Removed Columns"
