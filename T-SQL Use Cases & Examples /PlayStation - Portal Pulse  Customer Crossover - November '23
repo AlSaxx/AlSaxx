@@ -1,0 +1,55 @@
+USE Insight
+GO
+
+IF OBJECT_ID ('tempdb..#POR') IS NOT NULL
+	DROP TABLE #POR
+
+SELECT DISTINCT EMC.mergedCustomerId
+	INTO #POR
+	FROM Transactions T (NOLOCK)		
+		INNER JOIN ExpanededMergedCustomerIds EMC (NOLOCK)ON EMC.insightCustomerId = T.InsightCustomerId
+		INNER JOIN TransactionItem TI (NOLOCK) ON TI.transactionId = T.Id
+		INNER JOIN Sku S (NOLOCK) ON S.sku = TI.sku
+	WHERE T.transactionDate >= '2023-09-29' AND T.transactionDate < GETDATE()
+		AND S.sku in ('836225','836226', '836227')
+		AND TI.transactionTypeId IN (1, 2)																								-- Restrict to 1) Sale - 2) Preorder transaction types - 4) Refund 
+		AND T.storeNumber NOT IN (0,999,9999)																								-- Restrict store numbers 0, 999, 9999 - Customer Service & Head Office accounts (potential to inflate unit volumes) 
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_CUSTOMER_BLACKLIST)							-- Restrict customer Blacklist from Insighttemp
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_B2B_suppression)								-- Restrict B2B from Insighttemp
+GO
+
+IF OBJECT_ID ('tempdb..#PUL') IS NOT NULL
+	DROP TABLE #PUL
+																								
+SELECT DISTINCT EMC.mergedCustomerId
+	INTO #PUL
+	FROM Transactions T (NOLOCK)		
+		INNER JOIN ExpanededMergedCustomerIds EMC (NOLOCK)ON EMC.insightCustomerId = T.InsightCustomerId
+		INNER JOIN TransactionItem TI (NOLOCK) ON TI.transactionId = T.Id
+		INNER JOIN Sku S (NOLOCK) ON S.sku = TI.sku
+	WHERE T.transactionDate >= '2023-09-29' AND T.transactionDate < GETDATE()
+		AND S.sku in ('837801','837802', '837803')
+		AND TI.transactionTypeId IN (1,2)																									-- Restrict to 1) Sale - 2) Preorder transaction types - 4) Refund 
+		AND T.storeNumber NOT IN (0,999,9999)																								-- Restrict store numbers 0, 999, 9999 - Customer Service & Head Office accounts (potential to inflate unit volumes) 
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_CUSTOMER_BLACKLIST)							-- Restrict customer Blacklist from Insighttemp
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_B2B_suppression)								-- Restrict B2B from Insighttemp
+GO
+
+------------------------------------------
+------------------------------------------
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'Portal_Cust'
+	FROM #POR
+GO
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'Pulse_Cust'
+	FROM #PUL
+GO
+
+SELECT COUNT(DISTINCT mergedCustomerId) 'XOver_Cust'
+	FROM #POR
+	WHERE mergedCustomerId IN (SELECT mergedCustomerId FROM #PUL)
+GO
+
+------------------------------------------
+------------------------------------------
