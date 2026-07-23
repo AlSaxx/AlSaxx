@@ -1,0 +1,39 @@
+USE Insight
+GO
+
+If OBJECT_ID ('tempdb..#SM2TC') IS NOT NULL
+	DROP TABLE #SM2TC
+
+SELECT DISTINCT t.Id
+	INTO #SM2TC
+	FROM Transactions AS T (NOLOCK)
+		INNER JOIN ExpanededMergedCustomerIds AS EMC (NOLOCK) ON EMC.insightCustomerId = T.InsightCustomerId
+		INNER JOIN TransactionItem AS TI (NOLOCK) ON T.Id = TI.transactionId
+		INNER JOIN Sku AS S (NOLOCK) ON S.sku = TI.sku
+	WHERE
+		S.sku IN ('832901','832902','832903')																								-- Spiderman 2 Standard ( MINT SKU, PRE-ORDER SKU, DEPOSIT SKU)
+		AND TI.transactionTypeId IN (1, 2)																								-- Restrict to 1) Sale - 2) Preorder transaction types - 4) Refund 
+		AND T.storeNumber NOT IN (0,999,9999)																								-- Restrict store numbers 0, 999, 9999 - Customer Service & Head Office accounts (potential to inflate unit volumes) 
+		AND T.transactionDate >= '2023-07-28' AND T.transactionDate < '2023-09-01'
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_CUSTOMER_BLACKLIST)							-- Restrict customer Blacklist from Insighttemp
+		AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_B2B_suppression)								-- Restrict B2B from Insighttemp
+GO
+
+--------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------
+
+SELECT s.sku, s.title, SUM(quantity) AS 'Units'
+	FROM Transactions AS T (NOLOCK)
+		INNER JOIN TransactionItem AS TI (NOLOCK) ON T.Id = TI.transactionId
+		INNER JOIN Sku AS S (NOLOCK) ON S.sku = TI.sku
+		INNER JOIN #SM2TC AS PO ON PO.Id = T.Id
+	WHERE
+		TI.transactionTypeId IN (1,2)
+		AND T.storeNumber NOT IN (0,999,9999)
+		AND departmentId NOT IN (328,451,390,456,389,442,470)
+		AND S.sku NOT IN ('832901','832902','832903')
+	GROUP BY
+		s.sku, s.title
+	ORDER BY
+		Units DESC
+GO
