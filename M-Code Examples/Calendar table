@@ -1,0 +1,18 @@
+let
+    MinDate = List.Min(#"Global retail"[Date]),
+    MaxDate = List.Max(#"Global retail"[Date]),
+    DateList = List.Dates(MinDate, Duration.Days(MaxDate - MinDate) + 1, #duration(1,0,0,0)),
+    DateTable = Table.FromList(DateList, Splitter.SplitByNothing(), {"Date"}, null, ExtraValues.Error),
+    ChangedType = Table.TransformColumnTypes(DateTable, {{"Date", type date}}),
+    AddYear = Table.AddColumn(ChangedType, "Year", each Date.Year([Date]), Int64.Type),
+    AddMonthNumber = Table.AddColumn(AddYear, "Month Number", each Date.Month([Date]), Int64.Type),
+    AddMonth = Table.AddColumn(AddMonthNumber, "Month", each Date.ToText([Date], "MMMM"), type text),
+    AddShortMonth = Table.AddColumn(AddMonth, "Short Month", each Text.Start(Date.ToText([Date], "MMMM"), 1), type text),
+    AddQuarter = Table.AddColumn(AddShortMonth, "Quarter", each "Q" & Text.From(Date.QuarterOfYear([Date])), type text),
+    AddWeekNumber = Table.AddColumn(AddQuarter, "Week Number", each Date.WeekOfYear([Date], Day.Monday), Int64.Type),
+    AddDay = Table.AddColumn(AddWeekNumber, "Day", each Date.Day([Date]), Int64.Type),
+    AddDayName = Table.AddColumn(AddDay, "Day Name", each Date.ToText([Date], "dddd"), type text),
+    AddShortDay = Table.AddColumn(AddDayName, "Short Day", each Date.ToText([Date], "ddd"), type text),
+    AddMonthYear = Table.AddColumn(AddShortDay, "Month Year", each [Short Month] & " '" & Text.End(Text.From([Year]), 2), type text)
+in
+    AddMonthYear
