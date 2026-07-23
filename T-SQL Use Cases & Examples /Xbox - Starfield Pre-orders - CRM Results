@@ -1,0 +1,210 @@
+USE insight
+GO
+
+IF Object_id ('tempdb..#psku') IS NOT NULL
+  DROP TABLE #psku
+
+SELECT *
+INTO   #psku
+FROM   sku as s
+WHERE sku in ('808605','832332', '832336', '832340', '833747', '808606', '832333', '832337', '832341', '833748', '808607','832334', '832338', '832342', '833749')	-- All Starfield SKU's
+GO
+
+IF Object_id ('tempdb..#WEEKLYEMAILSEND') IS NOT NULL
+  DROP TABLE #weeklyemailsend
+
+SELECT DISTINCT rs.campaignid,
+                rls.campaignname,
+                rls.purpose,
+                rls.marketingstrategy,
+                rls.marketingprogram,
+                d.[date] 'sentDate',
+                d.weekid,
+                d.financialyearid,
+                rs.customerid,
+                rs.email
+INTO   #weeklyemailsend
+FROM   responsyssent rs (NOLOCK)
+       INNER JOIN dimdatefinance d (NOLOCK) ON rs.eventcaptureddate = d.[date]
+       INNER JOIN responsyslaunchstate rls (NOLOCK) ON rs.launchid = rls.launchid
+WHERE  rs.campaignid in (28569742, 28591982)
+       AND ( ( rls.launchtype = 'S'
+				AND rls.launchstatus = 'C' )
+				OR ( rls.launchtype = 'R'
+                AND rls.launchstatus = 'S' ) )
+       AND rs.customerid <> ''
+       AND rs.customerid IS NOT NULL
+       AND rs.customerid NOT LIKE 'X%'
+       AND rs.customerid NOT LIKE '%?%'
+       AND rs.customerid NOT LIKE 'cc%'
+       AND rs.customerid NOT LIKE '%PROOF%'
+       AND rs.customerid <> '111111111111'
+       AND rs.customerid <> '000222'
+       AND rs.customerid <> 'TEST_001'
+       AND rs.customerid <> 'testXYZ'
+       AND rs.email <> ''
+       AND rs.email IS NOT NULL
+       AND rs.email NOT IN (SELECT email
+                            FROM   insighttemp..gk_customer_blacklist)
+       AND rs.email NOT IN (SELECT email
+                            FROM   insighttemp..gk_b2b_suppression b
+                                   INNER JOIN expanededmergedcustomerids emc (NOLOCK) ON b.mergedcustomerid = emc.mergedcustomerid
+                                   INNER JOIN insightcustomer ic (NOLOCK) ON emc.insightcustomerid = ic.id)
+GO
+
+IF Object_id ('tempdb..#WEEKLYEMAILOPENED') IS NOT NULL
+  DROP TABLE #weeklyemailopened
+
+SELECT DISTINCT ro.campaignid,
+                ro.customerid,
+                ws.sentdate,
+                ws.weekid,
+                ws.financialyearid,
+                ro.eventcaptureddate 'openedDate'
+INTO   #weeklyemailopened
+FROM   responsysopened ro (NOLOCK)
+       INNER JOIN #weeklyemailsend ws (NOLOCK)
+               ON ro.campaignid = ws.campaignid
+                  AND ro.customerid = ws.customerid
+                  AND ro.eventcaptureddate >= ws.sentdate
+WHERE  ro.eventcaptureddate >= ws.sentdate
+       AND ro.eventcaptureddate < Dateadd(day, 7, ws.sentdate) AND ro.eventcaptureddate >= '2023-06-12'
+       AND ro.customerid <> ''
+       AND ro.customerid IS NOT NULL
+       AND ro.customerid NOT LIKE 'X%'
+       AND ro.customerid NOT LIKE '%?%'
+       AND ro.customerid NOT LIKE 'cc%'
+       AND ro.customerid NOT LIKE '%PROOF%'
+       AND ro.customerid <> '111111111111'
+       AND ro.customerid <> '000222'
+       AND ro.customerid <> 'TEST_001'
+       AND ro.customerid <> 'testXYZ'
+GO
+
+IF Object_id ('tempdb..#WEEKLYEMAILCLICKED') IS NOT NULL
+  DROP TABLE #weeklyemailclicked
+
+SELECT DISTINCT rc.campaignid,
+                rc.customerid,
+                ws.sentdate,
+                ws.weekid,
+                ws.financialyearid,
+                rc.eventcaptureddate 'clickedDate',
+                rc.offername,
+                rc.offercategory
+INTO   #weeklyemailclicked
+FROM   responsysclicked rc (NOLOCK)
+       INNER JOIN #weeklyemailsend ws (NOLOCK)
+               ON rc.campaignid = ws.campaignid
+                  AND rc.customerid = ws.customerid
+                  AND rc.eventcaptureddate >= ws.sentdate
+WHERE  rc.eventcaptureddate >= ws.sentdate
+       AND rc.eventcaptureddate < Dateadd(day, 7, ws.sentdate) AND rc.eventcaptureddate >= '2023-06-12'
+       AND rc.customerid <> ''
+       AND rc.customerid IS NOT NULL
+       AND rc.customerid NOT LIKE 'X%'
+       AND rc.customerid NOT LIKE '%?%'
+       AND rc.customerid NOT LIKE 'cc%'
+       AND rc.customerid NOT LIKE '%PROOF%'
+       AND rc.customerid <> '111111111111'
+       AND rc.customerid <> '000222'
+       AND rc.customerid <> 'TEST_001'
+       AND rc.customerid <> 'testXYZ'
+GO
+
+IF Object_id ('tempdb..#WEEKLYEMAILCONVERTED') IS NOT NULL
+  DROP TABLE #weeklyemailconverted
+
+SELECT DISTINCT e.campaignid,
+                e.sentdate,
+                e.customerid,
+                Sum(ti.quantity) 'SevenDayUnit',
+				Sum(ti.totalPrice) 'SevenDayValue'
+INTO   #weeklyemailconverted
+FROM   #weeklyemailsend e
+       INNER JOIN expanededmergedcustomerids emc (NOLOCK) ON e.customerid = emc.mergedcustomerid
+       INNER JOIN transactions tc (NOLOCK) ON emc.insightcustomerid = tc.insightcustomerid
+       INNER JOIN transactionitem ti (NOLOCK) ON tc.id = ti.transactionid
+       INNER JOIN #psku s (NOLOCK) ON ti.sku = s.sku
+WHERE  tc.transactiondate >= e.sentdate
+       AND tc.transactiondate < Dateadd(day, 7, e.sentdate) AND tc.transactiondate >= '2023-06-01'
+       AND ti.transactiontypeid in (1, 2)
+GROUP  BY e.campaignid,
+          e.sentdate,
+          e.customerid
+GO
+
+IF Object_id ('tempdb..#EMAILSTAT') IS NOT NULL
+  DROP TABLE #emailstat
+
+SELECT ws.*,
+       Isnull(wo.custuniqueopen, 0) 'custUniqueOpen',
+       CONVERT(DECIMAL, Isnull(wo.custuniqueopen, 0)) / ws.custsent 'uniqueOpenRate',
+       Isnull(wc.custuniqueclick, 0) 'custUniqueClick',
+       Isnull(( CONVERT(DECIMAL, wc.custuniqueclick) / wo.custuniqueopen ), 0) 'uniqueClickRate',
+       Isnull(wv.custuniqueconverted, 0) 'custUniqueConverted',
+       CONVERT(DECIMAL, Isnull(wv.custuniqueconverted, 0)) / ws.custsent 'uniqueConversionRate',
+       Isnull(wv.custConvertedunits, 0) 'custConvertedunits',
+	   Isnull(wv.custConvertedValue, 0) 'custConvertedValue'
+INTO   #emailstat
+FROM   (SELECT DISTINCT ws.financialyearid,
+                        ws.weekid,
+                        ws.campaignid,
+                        ws.campaignname,
+                        ws.sentdate,
+                        ws.purpose,
+                        ws.marketingstrategy,
+                        ws.marketingprogram,
+                        Count(DISTINCT ws.customerid) 'custSent'
+        FROM   #weeklyemailsend ws
+        GROUP BY ws.financialyearid,
+                 ws.weekid,
+                 ws.campaignid,
+                 ws.campaignname,
+                 ws.sentdate,
+                 ws.purpose,
+                 ws.marketingstrategy,
+                 ws.marketingprogram) WS
+       LEFT OUTER JOIN (SELECT DISTINCT wo.campaignid,
+                                        wo.sentdate,
+                                        Count(DISTINCT wo.customerid) 'custUniqueOpen'
+                        FROM   #weeklyemailopened wo
+                        GROUP BY wo.campaignid,
+                                 wo.sentdate)WO
+                    ON ws.campaignid = wo.campaignid
+                       AND ws.sentdate = wo.sentdate
+       LEFT OUTER JOIN (SELECT DISTINCT wc.campaignid,
+                                        wc.sentdate,
+                                        Count(DISTINCT wc.customerid) 'custUniqueClick'
+                        FROM   #weeklyemailclicked wc
+                        GROUP BY  wc.campaignid,
+                                  wc.sentdate)WC
+                    ON ws.campaignid = wc.campaignid
+						AND ws.sentdate = wc.sentdate
+       LEFT OUTER JOIN (SELECT DISTINCT wv.campaignid,
+                                        wv.sentdate,
+                                        Count(DISTINCT wv.customerid) 'custUniqueConverted',
+                                        Sum(wv.SevenDayUnit) 'custConvertedunits',
+										Sum(wv.SevenDayValue) 'custConvertedValue'
+                        FROM   #weeklyemailconverted wv
+                        GROUP BY wv.campaignid,
+                                  wv.sentdate) WV
+                    ON ws.campaignid = wv.campaignid
+						AND ws.sentdate = wv.sentdate
+GO
+
+SELECT DISTINCT ES.campaignid,
+                ES.campaignname,
+                ES.sentdate,
+                ES.custsent,
+                ES.custuniqueopen,
+                ES.uniqueopenrate,
+                ES.custuniqueclick,
+                ES.uniqueclickrate,
+                ES.custuniqueconverted,
+                ES.custConvertedunits,
+				ES.custConvertedValue
+FROM   #emailstat ES
+ORDER BY es.sentdate,
+		 es.campaignname
+GO
