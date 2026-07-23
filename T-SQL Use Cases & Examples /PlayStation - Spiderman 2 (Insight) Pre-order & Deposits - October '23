@@ -1,0 +1,34 @@
+USE Insight		-- Insight is used for Customer data. To Pre-order you have to have a reward account (customer data) - We can track follow up sales from Pre-orders by using Insight not Arc.
+GO
+
+SELECT tDate, [Online], [Store]
+	FROM (
+		SELECT CAST(T.transactionDate As date) As 'tDate', SUM(CASE WHEN transactionTypeId = 4 THEN quantity*-1 ELSE quantity END) AS 'UnitSales',	-- Convert Refund Unit into Minus values!	
+			CASE WHEN T.storeNumber IN (887, 889) THEN 'Online'																						-- Split the channels (887/889 are online)
+				ELSE 'Store' END AS Location
+			FROM Transactions AS T (NOLOCK)
+				INNER JOIN ExpanededMergedCustomerIds AS EMC (NOLOCK) ON EMC.insightCustomerId = T.InsightCustomerId								-- Wire up the tables
+				INNER JOIN TransactionItem AS TI (NOLOCK) ON T.Id = TI.transactionId
+				INNER JOIN Sku AS S (NOLOCK) ON S.sku = TI.sku
+			WHERE
+				S.sku IN ('832901','832902','832903')																								-- Spiderman 2 Standard ( MINT SKU, PRE-ORDER SKU, DEPOSIT SKU)
+				AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_CUSTOMER_BLACKLIST)							-- Restrict customer Blacklist from Insighttemp
+				AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_B2B_suppression)								-- Restrict B2B from Insighttemp
+				AND TI.transactionTypeId IN (1, 2, 4)																								-- Restrict to 1) Sale - 2) Preorder transaction types - 4) Refund 
+				AND T.storeNumber NOT IN (0,999,9999)																								-- Restrict store numbers 0, 999, 9999 - Customer Service & Head Office accounts (potential to inflate unit volumes) 
+				AND T.transactionDate >= '2023-06-16' AND T.transactionDate < '2023-10-20'														-- Restrict dates to Pre-order opening to Title release date
+			GROUP BY
+				T.transactionDate,
+				CASE WHEN T.storeNumber IN (887, 889) THEN 'Online'
+					ELSE 'Store' END
+) A
+PIVOT
+(
+	SUM(UnitSales)
+	FOR Location IN (
+		[Online],
+		[Store])
+) PVT
+ORDER BY
+	tDate
+GO
