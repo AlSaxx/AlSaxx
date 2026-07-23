@@ -1,0 +1,86 @@
+USE GAME_ARC
+GO
+
+-------------------------------------------------------------------------------------------------------
+----------------------------------------------TEMP TABLES----------------------------------------------
+-------------------------------------------------------------------------------------------------------
+
+IF OBJECT_ID ('tempdb..#SKU') IS NOT NULL
+	DROP TABLE #SKU
+
+SELECT *																					-- TEMP TABLE 2. Analysis SKU (GOW:R Hardware SKU)
+	INTO #SKU
+		FROM DIM_PRODUCT
+		WHERE SOURCE_PRODUCT_CODE = '825298'
+	GO
+
+IF OBJECT_ID ('tempdb..#BSKT') IS NOT NULL													-- TEMP TABLE 3. Basket Count containing SKU's from TEMP TABLE 2.
+	DROP TABLE #BSKT
+
+SELECT DISTINCT FCT.INVOICE_NO, FCT.STORE_CODE, FCT.SALE_INVC_TYPE
+	INTO #BSKT
+		FROM FCT_SALES_LINES FCT (NOLOCK)
+			INNER JOIN #SKU AS S (NOLOCK) ON S.PRODUCT_KEY = FCT.PRODUCT_KEY
+			INNER JOIN DIM_DATE D (NOLOCK) ON D.DATE_KEY = FCT.DATE_KEY
+		WHERE D.DATE_FLD >= '2023-02-02' AND D.DATE_FLD < '2023-03-16'						-- Campaign Period
+			AND STORE_CODE NOT IN ('UK - 887', 'UK - 889')
+GO
+
+------------------------------------------------------------------------------------------------------
+---------------------------------------------DATA PULLS-----------------------------------------------
+------------------------------------------------------------------------------------------------------
+
+SELECT COUNT(DISTINCT B.INVOICE_NO) AS 'StoreBaskets'										-- Store Baskets
+	FROM #BSKT AS B
+	WHERE SALE_INVC_TYPE IN ('REG-INV','DISC-SALE')
+	GO
+
+SELECT COUNT(DISTINCT B.INVOICE_NO) AS 'TradeInBaskets'										-- Trade In Basket Count of all SKU's selected in Basket Temp Table
+	FROM #BSKT AS B
+		INNER JOIN FCT_SALES_LINES AS F (NOLOCK) ON F.INVOICE_NO = B.INVOICE_NO
+	WHERE F.SALE_INVC_TYPE = 'TRADE-IN'
+	GO
+
+SELECT TOP 10 P.PRODUCT_CODE, P.PRODUCT_DESCRIPTION, -SUM(SALE_TOT_QTY) AS 'TIQty'			-- Top 10 Traded in SKU's
+	FROM #BSKT AS B
+		INNER JOIN FCT_SALES_LINES AS F (NOLOCK) ON F.INVOICE_NO = B.INVOICE_NO
+		INNER JOIN DIM_PRODUCT AS P (NOLOCK) ON P.PRODUCT_KEY = F.PRODUCT_KEY
+	WHERE F.SALE_INVC_TYPE = 'TRADE-IN'
+	GROUP BY
+		P.PRODUCT_CODE,
+		P.PRODUCT_DESCRIPTION
+	ORDER BY
+		'TIQty' DESC
+	GO
+
+SELECT P.PRODUCT_CODE, P.PRODUCT_DESCRIPTION, -SUM(SALE_TOT_QTY) AS 'TIQty'					-- All Traded in HW SKU's
+	FROM #BSKT AS B
+		INNER JOIN FCT_SALES_LINES AS F (NOLOCK) ON F.INVOICE_NO = B.INVOICE_NO
+		INNER JOIN DIM_PRODUCT AS P (NOLOCK) ON P.PRODUCT_KEY = F.PRODUCT_KEY
+	WHERE F.SALE_INVC_TYPE = 'TRADE-IN'
+		AND CLASS_CODE = 'H'
+	GROUP BY
+		P.PRODUCT_CODE,
+		P.PRODUCT_DESCRIPTION
+	ORDER BY
+		'TIQty' DESC
+	GO
+
+SELECT DISTINCT																				-- Tender Type of Basket Count
+	CASE WHEN T.TENDER_CODE IN ('FG','WG')
+	THEN 'GiftCard' ELSE T.TENDER_NAME END AS [TenderType],
+	COUNT (DISTINCT F.INVOICE_NO) AS 'Baskets_Store'
+	FROM FCT_SALES_LINES AS F (NOLOCK)
+		INNER JOIN DIM_DATE AS D (NOLOCK) ON D.DATE_KEY = F.DATE_KEY
+		INNER JOIN FCT_SALES_INVOICE_TENDER AS IT (NOLOCK) ON IT.INVOICE_NO  = F.INVOICE_NO
+		INNER JOIN DIM_TENDER AS T (NOLOCK) ON T.TENDER_KEY = IT.TENDER_KEY
+		INNER JOIN #SKU AS P (NOLOCK) ON P.PRODUCT_KEY = F.PRODUCT_KEY
+	WHERE F.STORE_CODE NOT IN ('UK - 887', 'UK - 889')
+		AND SALE_INVC_TYPE <> 'TRADE-IN'
+		AND D.DATE_FLD >= '2023-02-02' AND D.DATE_FLD < '2023-03-16'
+	GROUP BY
+		CASE WHEN T.TENDER_CODE IN ('FG', 'WG')
+		THEN 'GiftCard' ELSE T.TENDER_NAME END
+	ORDER BY
+		'Baskets_Store' DESC
+	GO
