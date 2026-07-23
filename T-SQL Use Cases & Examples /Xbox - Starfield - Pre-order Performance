@@ -1,0 +1,38 @@
+USE Insight
+GO
+
+SELECT	tDate,
+		[Online],
+		[Store]
+	FROM (
+		SELECT CAST(T.transactionDate AS date) AS 'tDate', SUM(CASE WHEN transactionTypeId = 4 THEN quantity*-1 ELSE quantity END) AS 'UnitSales',	
+			CASE WHEN T.storeNumber IN (887, 889) THEN 'Online'
+				ELSE 'Store' END AS Location
+			FROM Transactions AS T (NOLOCK)
+				INNER JOIN ExpanededMergedCustomerIds AS EMC (NOLOCK) ON EMC.insightCustomerId = T.InsightCustomerId
+				INNER JOIN TransactionItem AS TI (NOLOCK) ON T.Id = TI.transactionId
+				INNER JOIN Sku AS S (NOLOCK) ON S.sku = TI.sku
+			WHERE
+				S.sku IN ('808605','832332', '832336', '832340', '833747', '808606', '832333', '832337', '832341', '833748', '808607','832334', '832338', '832342', '833749')
+				AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_CUSTOMER_BLACKLIST)
+				AND EMC.mergedCustomerId NOT IN (SELECT DISTINCT mergedcustomerid FROM insighttemp..GK_B2B_suppression)
+				AND TI.transactionTypeId IN (1, 2, 4)
+				AND T.storeNumber NOT IN (0, 999, 9999) -- Doesn't make any difference in this case but get used to putting these restrictions in to account for HO & Online vol&val over inflation
+				AND T.transactionDate >= '2023-06-12' AND T.transactionDate < '2023-09-07'
+			GROUP BY
+				transactionDate,
+				CASE WHEN T.storeNumber IN (887, 889) THEN 'Online'
+					ELSE 'Store' END
+) A
+PIVOT
+(
+	SUM(UnitSales)
+	FOR Location IN (
+		[Online],
+		[Store])
+) AS PIVOT_TABLE
+ORDER BY
+	tDate
+GO
+
+-- select * from Sku where sku in ('808605','832332', '832336', '832340', '833747', '808606', '832333', '832337', '832341', '833748', '808607','832334', '832338', '832342', '833749')
